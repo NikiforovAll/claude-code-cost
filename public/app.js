@@ -10,7 +10,7 @@ let currentProjectName = null;
 let currentSessionId = null;
 let sortField = 'totalCost';
 let sortOrder = 'desc';
-let dateRange = 7;
+let dateRange = 3;
 const charts = {};
 let lastRenderHash = {};
 let navCounter = 0;
@@ -107,11 +107,26 @@ function getUrlState() {
 
 function loadDateRange() {
   const v = localStorage.getItem('cc-cost:range');
-  return v ? parseInt(v, 10) || 7 : 7;
+  return v ? parseInt(v, 10) || 3 : 3;
 }
 
 function saveDateRange(val) {
   localStorage.setItem('cc-cost:range', String(val));
+}
+
+function loadSort(view) {
+  const raw = localStorage.getItem(`cc-cost:sort:${view}`);
+  if (raw) {
+    try {
+      const { field, order } = JSON.parse(raw);
+      if (field) sortField = field;
+      if (order) sortOrder = order;
+    } catch { /* ignore */ }
+  }
+}
+
+function saveSort(view) {
+  localStorage.setItem(`cc-cost:sort:${view}`, JSON.stringify({ field: sortField, order: sortOrder }));
 }
 
 function updateUrl() {
@@ -210,6 +225,11 @@ async function fetchSessions(encodedPath) {
 
 async function fetchSessionDetail(sessionId) {
   sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}`, true);
+  // Populate project context when opening via deep link (no project in URL)
+  if (sessionDetailData && !currentProjectPath) {
+    currentProjectPath = sessionDetailData.encodedProjectPath;
+    currentProjectName = sessionDetailData.projectPath;
+  }
 }
 
 // #endregion
@@ -375,7 +395,7 @@ function renderSessions() {
     return;
   }
 
-  const h = JSON.stringify(sessionsData);
+  const h = JSON.stringify(sessionsData) + sortField + sortOrder;
   if (lastRenderHash.sessions === h) return;
   lastRenderHash.sessions = h;
 
@@ -404,16 +424,16 @@ function renderSessions() {
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>Session</th>
-          <th>Cost</th>
-          <th>Tokens</th>
-          <th>Messages</th>
-          <th>Duration</th>
+          <th class="${thClass('firstPrompt')}" onclick="sortBy('firstPrompt')">Session ${sortArrow('firstPrompt')}</th>
+          <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
+          <th class="${thClass('totalTokens')}" onclick="sortBy('totalTokens')">Tokens ${sortArrow('totalTokens')}</th>
+          <th class="${thClass('messageCount')}" onclick="sortBy('messageCount')">Messages ${sortArrow('messageCount')}</th>
+          <th class="${thClass('durationMinutes')}" onclick="sortBy('durationMinutes')">Duration ${sortArrow('durationMinutes')}</th>
           <th>Model</th>
-          <th>Last Active</th>
+          <th class="${thClass('lastTimestamp')}" onclick="sortBy('lastTimestamp')">Last Active ${sortArrow('lastTimestamp')}</th>
         </tr></thead>
         <tbody>
-          ${sessionsData
+          ${[...sessionsData].sort((a, b) => sortCompare(a, b, sortField, sortOrder))
             .map(
               (s) => `
             <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
@@ -839,6 +859,7 @@ function showView(viewId) {
 
 async function navigate(view, params) {
   currentView = view;
+  loadSort(view);
   if (params?.project) currentProjectPath = params.project;
   if (params?.projectName) currentProjectName = params.projectName;
   if (params?.session) currentSessionId = params.session;
@@ -880,10 +901,11 @@ function sortBy(field) {
     sortField = field;
     sortOrder = 'desc';
   }
-  lastRenderHash.projects = null;
-  lastRenderHash.overview = null;
+  lastRenderHash[currentView] = null;
+  saveSort(currentView);
   updateUrl();
   if (currentView === 'overview') renderOverview();
+  else if (currentView === 'sessions') renderSessions();
   else renderProjects();
 }
 
@@ -945,6 +967,7 @@ async function loadAndRender(view) {
       case 'sessions':
         if (currentProjectPath) {
           sessionsData = null;
+          lastRenderHash.sessions = null;
           renderSessions();
           await fetchSessions(currentProjectPath);
           if (myNav !== navCounter) return;
@@ -954,6 +977,7 @@ async function loadAndRender(view) {
       case 'detail':
         if (currentSessionId) {
           sessionDetailData = null;
+          lastRenderHash.detail = null;
           renderDetail();
           await fetchSessionDetail(currentSessionId);
           if (myNav !== navCounter) return;
@@ -1032,7 +1056,11 @@ function activateSelectedRow() {
 
 function goBack() {
   if (currentView === 'detail') {
-    navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+    if (currentProjectPath) {
+      navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+    } else {
+      navigate('projects');
+    }
   } else if (currentView === 'sessions') {
     navigate('projects');
   } else if (currentView === 'projects') {
@@ -1199,6 +1227,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('popstate', () => {
   const state = getUrlState();
   currentView = state.view || 'overview';
+  loadSort(currentView);
   currentProjectPath = state.project;
   currentProjectName = state.projectName;
   currentSessionId = state.session;
