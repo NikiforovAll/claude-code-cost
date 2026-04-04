@@ -13,6 +13,7 @@ let sortOrder = 'desc';
 let dateRange = 7;
 let charts = {};
 let lastRenderHash = {};
+let navCounter = 0;
 
 // #endregion
 
@@ -87,10 +88,18 @@ function getUrlState() {
     project: p.get('project'),
     projectName: p.get('projectName'),
     session: p.get('session'),
-    range: p.get('range'),
     sort: p.get('sort'),
     order: p.get('order'),
   };
+}
+
+function loadDateRange() {
+  const v = localStorage.getItem('cc-cost:range');
+  return v ? parseInt(v) || 7 : 7;
+}
+
+function saveDateRange(val) {
+  localStorage.setItem('cc-cost:range', String(val));
 }
 
 function updateUrl() {
@@ -99,7 +108,6 @@ function updateUrl() {
   if (currentProjectPath) p.set('project', currentProjectPath);
   if (currentProjectName) p.set('projectName', currentProjectName);
   if (currentSessionId) p.set('session', currentSessionId);
-  if (dateRange !== 30) p.set('range', dateRange);
   if (sortField !== 'totalCost') p.set('sort', sortField);
   if (sortOrder !== 'desc') p.set('order', sortOrder);
   const qs = p.toString();
@@ -111,6 +119,7 @@ function updateUrl() {
 // #region FETCH
 
 const BROWSER_CACHE_TTL = 5 * 60 * 1000; // 5 min
+const CACHE_VERSION = 3;
 let forceRefresh = false;
 
 function getCached(key) {
@@ -118,16 +127,34 @@ function getCached(key) {
   try {
     const raw = localStorage.getItem('cc-cost:' + key);
     if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > BROWSER_CACHE_TTL) return null;
+    const { data, ts, v } = JSON.parse(raw);
+    if (v !== CACHE_VERSION || Date.now() - ts > BROWSER_CACHE_TTL) return null;
     return data;
   } catch { return null; }
 }
 
 function setLocalCache(key, data) {
   try {
-    localStorage.setItem('cc-cost:' + key, JSON.stringify({ data, ts: Date.now() }));
+    pruneLocalCache();
+    localStorage.setItem('cc-cost:' + key, JSON.stringify({ data, ts: Date.now(), v: CACHE_VERSION }));
   } catch { /* storage full — ignore */ }
+}
+
+function pruneLocalCache() {
+  const MAX_ENTRIES = 20;
+  const entries = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k.startsWith('cc-cost:')) continue;
+    try {
+      const { ts } = JSON.parse(localStorage.getItem(k));
+      entries.push({ k, ts });
+    } catch { entries.push({ k, ts: 0 }); }
+  }
+  if (entries.length <= MAX_ENTRIES) return;
+  entries.sort((a, b) => a.ts - b.ts);
+  const toRemove = entries.length - MAX_ENTRIES;
+  for (let i = 0; i < toRemove; i++) localStorage.removeItem(entries[i].k);
 }
 
 function clearLocalCache() {
@@ -139,13 +166,15 @@ function clearLocalCache() {
   keys.forEach(k => localStorage.removeItem(k));
 }
 
-async function fetchJSON(url) {
-  const cached = getCached(url);
-  if (cached) return cached;
+async function fetchJSON(url, skipCache) {
+  if (!skipCache) {
+    const cached = getCached(url);
+    if (cached) return cached;
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  setLocalCache(url, data);
+  if (!skipCache) setLocalCache(url, data);
   return data;
 }
 
@@ -154,15 +183,15 @@ async function fetchOverview() {
 }
 
 async function fetchProjects() {
-  projectsData = await fetchJSON('/api/projects');
+  projectsData = await fetchJSON(`/api/projects?range=${dateRange}`);
 }
 
 async function fetchSessions(encodedPath) {
-  sessionsData = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions`);
+  sessionsData = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?range=${dateRange}`, true);
 }
 
 async function fetchSessionDetail(sessionId) {
-  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}`, true);
 }
 
 // #endregion
@@ -193,10 +222,6 @@ function renderOverview() {
           <div class="card-value cost">${formatCost(s.todayCost)}</div>
         </div>
         <div class="stat-card">
-          <div class="card-label">This Week</div>
-          <div class="card-value cost">${formatCost(s.weekCost)}</div>
-        </div>
-        <div class="stat-card">
           <div class="card-label">${dateRange} Days</div>
           <div class="card-value cost">${formatCost(s.totalCost)}</div>
         </div>
@@ -205,8 +230,8 @@ function renderOverview() {
           <div class="card-value">${s.totalSessions}</div>
         </div>
         <div class="stat-card">
-          <div class="card-label">Total Tokens</div>
-          <div class="card-value">${formatTokens(s.totalTokens)}</div>
+          <div class="card-label">Tokens</div>
+          <div class="card-value">${formatTokens(s.totalInput + s.totalOutput)}</div>
           <div class="card-sub">In: ${formatTokens(s.totalInput)} / Out: ${formatTokens(s.totalOutput)}</div>
         </div>
         <div class="stat-card">
@@ -475,9 +500,9 @@ function renderDetail() {
           <th>Cumulative</th>
         </tr></thead>
         <tbody>
-          ${d.messages.map((m, i) => `
+          ${[...d.messages].reverse().map((m) => `
             <tr>
-              <td class="muted">${i + 1}</td>
+              <td class="muted">${m.index}</td>
               <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
               <td><span class="model-badge">${esc(shortModel(m.model))}</span></td>
               <td>${formatTokens(m.inputTokens)}</td>
@@ -562,60 +587,35 @@ function renderDailyChart(daily) {
   const labels = daily.map(d => shortDate(d.date));
   const data = daily.map(d => d.cost);
 
-  // Cumulative line
-  let cum = 0;
-  const cumData = daily.map(d => { cum += d.cost; return cum; });
-
   charts.daily = new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
-      datasets: [
-        {
-          label: 'Daily Cost',
-          data,
-          backgroundColor: c.accentDim,
-          borderColor: c.accent,
-          borderWidth: 1,
-          borderRadius: 3,
-          order: 2,
-        },
-        {
-          label: 'Cumulative',
-          data: cumData,
-          type: 'line',
-          borderColor: c.chart2,
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          yAxisID: 'y1',
-          order: 1,
-        },
-      ],
+      datasets: [{
+        label: 'Daily Cost',
+        data,
+        backgroundColor: c.accentDim,
+        borderColor: c.accent,
+        borderWidth: 1,
+        borderRadius: 3,
+      }],
     },
     options: {
       ...chartDefaults(),
+      interaction: { mode: 'nearest', intersect: true },
+      events: [],
       plugins: {
         ...chartDefaults().plugins,
         tooltip: {
           ...chartDefaults().plugins.tooltip,
           callbacks: {
-            label: (ctx) => {
-              const val = ctx.parsed.y;
-              return `${ctx.dataset.label}: $${val.toFixed(2)}`;
-            },
+            label: (ctx) => `$${ctx.parsed.y.toFixed(2)}`,
           },
         },
       },
       scales: {
         ...chartDefaults().scales,
         y: { ...chartDefaults().scales.y, ticks: { ...chartDefaults().scales.y.ticks, callback: v => '$' + v.toFixed(2) } },
-        y1: {
-          position: 'right',
-          ticks: { color: c.text, font: { size: 10 }, callback: v => '$' + v.toFixed(0) },
-          grid: { display: false },
-        },
       },
     },
   });
@@ -629,41 +629,40 @@ function renderModelChart(models) {
   const colors = getChartColors();
   const palette = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.chart5, colors.chart6];
 
+  const total = models.reduce((s, m) => s + m.cost, 0);
+
   charts.model = new Chart(canvas, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
       labels: models.map(m => shortModel(m.model)),
       datasets: [{
         data: models.map(m => m.cost),
         backgroundColor: models.map((_, i) => palette[i % palette.length]),
         borderWidth: 0,
+        borderRadius: 3,
       }],
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      ...chartDefaults(),
+      indexAxis: 'y',
+      interaction: { mode: 'nearest', intersect: true },
+      events: [],
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: colors.text,
-            font: { size: 10, family: "'IBM Plex Mono', monospace" },
-            padding: 8,
-            usePointStyle: true,
-            pointStyleWidth: 8,
-          },
-        },
+        ...chartDefaults().plugins,
         tooltip: {
           ...chartDefaults().plugins.tooltip,
           callbacks: {
             label: (ctx) => {
-              const val = ctx.parsed;
-              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const val = ctx.parsed.x;
               const pct = ((val / total) * 100).toFixed(1);
               return `$${val.toFixed(2)} (${pct}%)`;
             },
           },
         },
+      },
+      scales: {
+        ...chartDefaults().scales,
+        x: { ...chartDefaults().scales.x, ticks: { ...chartDefaults().scales.x.ticks, callback: v => '$' + v } },
       },
     },
   });
@@ -733,8 +732,8 @@ function renderTokenBreakdownChart(messages) {
             color: c.text,
             font: { size: 10, family: "'IBM Plex Mono', monospace" },
             padding: 8,
-            usePointStyle: true,
-            pointStyleWidth: 8,
+            boxWidth: 12,
+            boxHeight: 12,
           },
         },
       },
@@ -849,19 +848,21 @@ function sortBy(field) {
   renderProjects();
 }
 
-function onRangeChange(val) {
-  dateRange = parseInt(val) || 30;
+async function onRangeChange(val) {
+  dateRange = parseInt(val) || 7;
+  saveDateRange(dateRange);
   lastRenderHash = {};
   updateUrl();
-  if (currentView === 'overview') {
-    loadAndRender('overview');
-  }
+  const t = showToast(`Recalculating for ${dateRange} days...`, true);
+  await loadAndRender(currentView);
+  dismissToast(t);
 }
 
 async function refreshData() {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('loading');
   btn.disabled = true;
+  const t = showToast(`Recalculating for ${dateRange} days...`, true);
   try {
     await fetch('/api/refresh', { method: 'POST' });
     clearLocalCache();
@@ -869,18 +870,18 @@ async function refreshData() {
     lastRenderHash = {};
     await loadAndRender(currentView);
     forceRefresh = false;
-    showToast('Data refreshed');
   } finally {
+    dismissToast(t);
     btn.classList.remove('loading');
     btn.disabled = false;
   }
 }
 
 async function loadAndRender(view) {
+  const myNav = ++navCounter;
   ensureViewElements();
   showView(view + '-view');
 
-  // Show loading state immediately before fetching
   const viewEl = document.getElementById(view + '-view');
   if (viewEl) {
     const hasContent = viewEl.querySelector('.dashboard-content');
@@ -893,10 +894,12 @@ async function loadAndRender(view) {
     switch (view) {
       case 'overview':
         await fetchOverview();
+        if (myNav !== navCounter) return;
         renderOverview();
         break;
       case 'projects':
         await fetchProjects();
+        if (myNav !== navCounter) return;
         renderProjects();
         break;
       case 'sessions':
@@ -904,6 +907,7 @@ async function loadAndRender(view) {
           sessionsData = null;
           renderSessions();
           await fetchSessions(currentProjectPath);
+          if (myNav !== navCounter) return;
           renderSessions();
         }
         break;
@@ -912,13 +916,17 @@ async function loadAndRender(view) {
           sessionDetailData = null;
           renderDetail();
           await fetchSessionDetail(currentSessionId);
+          if (myNav !== navCounter) return;
           renderDetail();
         }
         break;
     }
   } catch (err) {
+    if (myNav !== navCounter) return;
     console.error(`Failed to load ${view}:`, err);
-    showToast('Failed to load data');
+    showToast(`Error: ${err.message}`);
+    const viewEl = document.getElementById(view + '-view');
+    if (viewEl) viewEl.innerHTML = `<div class="loading-state"><span>Failed to load data: ${err.message}</span></div>`;
   }
 }
 
@@ -945,16 +953,30 @@ function ensureViewElements() {
 
 // #endregion
 
+// #region MODAL
+
+function toggleInfoModal() {
+  const modal = document.getElementById('infoModal');
+  modal.classList.toggle('visible');
+}
+
+// #endregion
+
 // #region TOAST
 
-function showToast(msg) {
+function showToast(msg, persistent) {
   const container = document.getElementById('toast');
   if (!container) return;
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = msg;
   container.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  if (!persistent) setTimeout(() => el.remove(), 3000);
+  return el;
+}
+
+function dismissToast(el) {
+  if (el) el.remove();
 }
 
 // #endregion
@@ -992,7 +1014,7 @@ loadTheme();
 
 document.addEventListener('DOMContentLoaded', async () => {
   const state = getUrlState();
-  dateRange = parseInt(state.range) || 7;
+  dateRange = loadDateRange();
   document.getElementById('rangeSelect').value = dateRange;
 
   if (state.sort) sortField = state.sort;

@@ -14,7 +14,7 @@
 npx claude-code-cost --open
 ```
 
-Open http://localhost:3459 (or use `--open` to auto-launch the browser).
+Open http://localhost:3458 (or use `--open` to auto-launch the browser).
 
 That's it. No hooks, no config — the dashboard reads your existing Claude Code session files.
 
@@ -39,7 +39,7 @@ npx claude-code-cost --open                 # Auto-open browser
 npx claude-code-cost --dir=~/.claude-work   # Custom Claude config dir
 ```
 
-If port 3459 is in use, the server falls back to a random available port.
+If port 3458 is in use, the server falls back to a random available port.
 
 ### Global install
 

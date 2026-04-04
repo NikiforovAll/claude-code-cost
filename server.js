@@ -18,7 +18,7 @@ function getArg(name) {
   return process.argv[eqIdx + 1] || null;
 }
 
-const PORT = getArg('port') || process.env.PORT || 3459;
+const PORT = getArg('port') || process.env.PORT || 3458;
 const claudeDirArg = getArg('dir');
 const CLAUDE_DIR = claudeDirArg
   ? claudeDirArg.replace(/^~/, os.homedir())
@@ -230,6 +230,13 @@ function invalidateAllCache() {
   cacheTimestamps = {};
 }
 
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function scanProjectDirs(cutoffDate) {
   const projects = new Map();
   const cutoffMs = cutoffDate ? cutoffDate.getTime() : 0;
@@ -402,7 +409,7 @@ async function getOverviewData(days) {
       projSessions++;
 
       for (const m of inRange) {
-        const day = m.timestamp.slice(0, 10);
+        const day = localDateStr(new Date(m.timestamp));
         dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
         if (m.model && !m.model.startsWith('<')) {
           modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
@@ -435,33 +442,27 @@ async function getOverviewData(days) {
     const start = new Date(cutoff);
     start.setHours(0, 0, 0, 0);
     for (let d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
-      const ds = d.toISOString().slice(0, 10);
+      const ds = localDateStr(d);
       const existing = dailyArray.find(e => e.date === ds);
       filledDaily.push({ date: ds, cost: existing ? existing.cost : 0 });
     }
   }
 
-  // Today/week/month costs
-  const todayStr = now.toISOString().slice(0, 10);
-  const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
-  const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30);
+  const todayStr = localDateStr(now);
   const todayCost = dailyCosts[todayStr] || 0;
-  const weekCost = Object.entries(dailyCosts)
-    .filter(([d]) => d >= weekAgo.toISOString().slice(0, 10))
-    .reduce((s, [, c]) => s + c, 0);
-  const monthCost = totalCost;
 
   const totalInputAll = totalInput + totalCacheCreation + totalCacheRead;
   const cacheEfficiency = totalInputAll > 0 ? totalCacheRead / totalInputAll : 0;
 
   // Model distribution sorted by cost
   const modelDistribution = Object.entries(modelCosts)
+    .filter(([model, cost]) => cost > 0 && !model.startsWith('<'))
     .map(([model, cost]) => ({ model, cost }))
     .sort((a, b) => b.cost - a.cost);
 
   const result = {
     summary: {
-      totalCost, todayCost, weekCost, monthCost,
+      totalCost, todayCost,
       totalSessions,
       totalTokens: totalInput + totalOutput + totalCacheCreation + totalCacheRead,
       totalInput, totalOutput, totalCacheCreation, totalCacheRead,
@@ -476,12 +477,16 @@ async function getOverviewData(days) {
   return result;
 }
 
-async function getProjectsData() {
-  const cacheKey = 'projects';
+async function getProjectsData(days) {
+  const cacheKey = `projects_${days || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
-  const projects = scanProjectDirs();
+  const now = new Date();
+  const cutoff = days ? new Date(now) : null;
+  if (cutoff) cutoff.setDate(cutoff.getDate() - days);
+  const projects = scanProjectDirs(cutoff);
+  const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
 
   for (const [encodedPath, proj] of projects) {
@@ -490,7 +495,13 @@ async function getProjectsData() {
     const models = new Set();
 
     for (const [, session] of sessions) {
-      totalCost += session.totalCost;
+      const msgs = cutoffStr
+        ? session.messages.filter(m => m.timestamp >= cutoffStr)
+        : session.messages;
+      if (msgs.length === 0) continue;
+
+      const cost = msgs.reduce((s, m) => s + m.cost, 0);
+      totalCost += cost;
       sessionCount++;
       for (const m of session.models) models.add(m);
       if (!lastActive || (session.lastTimestamp && session.lastTimestamp > lastActive)) {
@@ -515,32 +526,46 @@ async function getProjectsData() {
   return sorted;
 }
 
-async function getProjectSessionsData(encodedPath) {
-  const cacheKey = `sessions_${encodedPath}`;
+async function getProjectSessionsData(encodedPath, days) {
+  const cacheKey = `sessions_${encodedPath}_${days || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
-  const projects = scanProjectDirs();
+  const now = new Date();
+  const cutoff = days ? new Date(now) : null;
+  if (cutoff) cutoff.setDate(cutoff.getDate() - days);
+  const projects = scanProjectDirs(cutoff);
   const proj = projects.get(encodedPath);
   if (!proj) return [];
 
   const sessions = await loadProjectData(proj.files, pricing);
+  const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
 
   for (const [, session] of sessions) {
+    const msgs = cutoffStr
+      ? session.messages.filter(m => m.timestamp >= cutoffStr)
+      : session.messages;
+    if (msgs.length === 0) continue;
+
+    const cost = msgs.reduce((s, m) => s + m.cost, 0);
+    const input = msgs.reduce((s, m) => s + m.inputTokens, 0);
+    const output = msgs.reduce((s, m) => s + m.outputTokens, 0);
+    const cacheCreation = msgs.reduce((s, m) => s + m.cacheCreationTokens, 0);
+    const cacheRead = msgs.reduce((s, m) => s + m.cacheReadTokens, 0);
     const durationMs = session.firstTimestamp && session.lastTimestamp
       ? new Date(session.lastTimestamp) - new Date(session.firstTimestamp)
       : 0;
 
     result.push({
       sessionId: session.sessionId,
-      totalCost: session.totalCost,
-      inputTokens: session.inputTokens,
-      outputTokens: session.outputTokens,
-      cacheCreationTokens: session.cacheCreationTokens,
-      cacheReadTokens: session.cacheReadTokens,
-      totalTokens: session.inputTokens + session.outputTokens + session.cacheCreationTokens + session.cacheReadTokens,
-      messageCount: session.messages.length,
+      totalCost: cost,
+      inputTokens: input,
+      outputTokens: output,
+      cacheCreationTokens: cacheCreation,
+      cacheReadTokens: cacheRead,
+      totalTokens: input + output + cacheCreation + cacheRead,
+      messageCount: msgs.length,
       models: [...session.models],
       primaryModel: [...session.models][0] || 'unknown',
       firstPrompt: session.firstPrompt,
@@ -576,9 +601,9 @@ async function getSessionDetailData(sessionId) {
 
     // Add cumulative cost
     let cumulative = 0;
-    const messages = session.messages.map(m => {
+    const messages = session.messages.map((m, i) => {
       cumulative += m.cost;
-      return { ...m, cumulativeCost: cumulative };
+      return { ...m, index: i + 1, cumulativeCost: cumulative };
     });
 
     const result = {
@@ -627,9 +652,10 @@ app.get('/api/overview', async (req, res) => {
   }
 });
 
-app.get('/api/projects', async (_req, res) => {
+app.get('/api/projects', async (req, res) => {
   try {
-    const data = await getProjectsData();
+    const range = req.query.range ? parseInt(req.query.range) : null;
+    const data = await getProjectsData(range);
     res.json(data);
   } catch (err) {
     console.error('[API] projects error:', err);
@@ -639,7 +665,8 @@ app.get('/api/projects', async (_req, res) => {
 
 app.get('/api/projects/:path/sessions', async (req, res) => {
   try {
-    const data = await getProjectSessionsData(req.params.path);
+    const range = req.query.range ? parseInt(req.query.range) : null;
+    const data = await getProjectSessionsData(req.params.path, range);
     res.json(data);
   } catch (err) {
     console.error('[API] sessions error:', err);
