@@ -149,8 +149,8 @@ function saveDateRange(val) {
   localStorage.setItem('cc-cost:range', String(val));
 }
 
-function loadSort(view) {
-  const raw = localStorage.getItem(`cc-cost:sort:${view}`);
+function loadSort() {
+  const raw = localStorage.getItem('cc-cost:sort');
   if (raw) {
     try {
       const { field, order } = JSON.parse(raw);
@@ -162,8 +162,8 @@ function loadSort(view) {
   }
 }
 
-function saveSort(view) {
-  localStorage.setItem(`cc-cost:sort:${view}`, JSON.stringify({ field: sortField, order: sortOrder }));
+function saveSort() {
+  localStorage.setItem('cc-cost:sort', JSON.stringify({ field: sortField, order: sortOrder }));
 }
 
 function updateUrl() {
@@ -930,7 +930,7 @@ function showView(viewId) {
 
 async function navigate(view, params) {
   currentView = view;
-  loadSort(view);
+  loadSort();
   if (params?.project) currentProjectPath = params.project;
   if (params?.projectName) currentProjectName = params.projectName;
   if (params?.session) currentSessionId = params.session;
@@ -979,7 +979,7 @@ function sortBy(field) {
     sortOrder = 'desc';
   }
   lastRenderHash[currentView] = null;
-  saveSort(currentView);
+  saveSort();
   updateUrl();
   if (currentView === 'overview') renderOverview();
   else if (currentView === 'sessions') renderSessions();
@@ -1317,7 +1317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('popstate', () => {
   const state = getUrlState();
   currentView = state.view || 'overview';
-  loadSort(currentView);
+  loadSort();
   parentView = state.parentView;
   currentProjectPath = state.project;
   currentProjectName = state.projectName;
