@@ -538,7 +538,7 @@ async function getProjectSessionsData(encodedPath, days) {
   if (cutoff) cutoff.setDate(cutoff.getDate() - days);
   const projects = scanProjectDirs(cutoff);
   const proj = projects.get(encodedPath);
-  if (!proj) return [];
+  if (!proj) return { sessions: [], daily: [], modelDistribution: [] };
 
   const sessions = await loadProjectData(proj.files, pricing);
   const cutoffStr = cutoff ? cutoff.toISOString() : null;

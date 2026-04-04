@@ -111,7 +111,7 @@ function focusPreviousRow(view) {
   if (!selector) return;
   requestAnimationFrame(() => {
     const rows = getVisibleRows();
-    const idx = rows.findIndex(r => r.matches(selector));
+    const idx = rows.findIndex((r) => r.matches(selector));
     selectRow(idx >= 0 ? idx : 0);
   });
 }
@@ -149,7 +149,9 @@ function loadSort(view) {
       const { field, order } = JSON.parse(raw);
       if (field) sortField = field;
       if (order) sortOrder = order;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -477,7 +479,8 @@ function renderSessions() {
           <th class="${thClass('lastTimestamp')}" onclick="sortBy('lastTimestamp')">Last Active ${sortArrow('lastTimestamp')}</th>
         </tr></thead>
         <tbody>
-          ${[...sessionsData].sort((a, b) => sortCompare(a, b, sortField, sortOrder))
+          ${[...sessionsData]
+            .sort((a, b) => sortCompare(a, b, sortField, sortOrder))
             .map(
               (s) => `
             <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
