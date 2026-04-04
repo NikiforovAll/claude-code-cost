@@ -10,6 +10,9 @@ let sessionDetailData = null;
 let currentProjectPath = null;
 let currentProjectName = null;
 let currentSessionId = null;
+let parentView = 'projects';
+let lastSelectedProject = null;
+let lastSelectedSession = null;
 let sortField = 'totalCost';
 let sortOrder = 'desc';
 let dateRange = 3;
@@ -91,6 +94,28 @@ function thClass(field) {
   return sortField === field ? 'sorted' : '';
 }
 
+function parentBreadcrumb() {
+  const label = parentView === 'overview' ? 'Overview' : 'Projects';
+  return `<a class="parent-breadcrumb">${label}</a>`;
+}
+
+function focusPreviousRow(view) {
+  let selector;
+  if (view === 'overview' || view === 'projects') {
+    if (!lastSelectedProject) return;
+    selector = `tr[onclick*="'${lastSelectedProject}'"]`;
+  } else if (view === 'sessions') {
+    if (!lastSelectedSession) return;
+    selector = `tr[onclick*="'${lastSelectedSession}'"]`;
+  }
+  if (!selector) return;
+  requestAnimationFrame(() => {
+    const rows = getVisibleRows();
+    const idx = rows.findIndex(r => r.matches(selector));
+    selectRow(idx >= 0 ? idx : 0);
+  });
+}
+
 // #endregion
 
 // #region URL_STATE
@@ -104,6 +129,7 @@ function getUrlState() {
     session: p.get('session'),
     sort: p.get('sort'),
     order: p.get('order'),
+    parentView: p.get('parentView') || 'projects',
   };
 }
 
@@ -137,6 +163,7 @@ function updateUrl() {
   if (currentProjectPath) p.set('project', currentProjectPath);
   if (currentProjectName) p.set('projectName', currentProjectName);
   if (currentSessionId) p.set('session', currentSessionId);
+  if (parentView !== 'projects') p.set('parentView', parentView);
   if (sortField !== 'totalCost') p.set('sort', sortField);
   if (sortOrder !== 'desc') p.set('order', sortOrder);
   const qs = p.toString();
@@ -407,9 +434,7 @@ function renderSessions() {
   if (sessionsData.length === 0) {
     el.innerHTML = `<div class="dashboard-content">
       <div class="breadcrumb">
-        <a onclick="navigate('overview')">Overview</a>
-        <span class="sep">/</span>
-        <a onclick="navigate('projects')">Projects</a>
+        ${parentBreadcrumb()}
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
@@ -421,9 +446,7 @@ function renderSessions() {
   el.innerHTML = `
     <div class="dashboard-content">
       <div class="breadcrumb">
-        <a onclick="navigate('overview')">Overview</a>
-        <span class="sep">/</span>
-        <a onclick="navigate('projects')">Projects</a>
+        ${parentBreadcrumb()}
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
@@ -498,9 +521,7 @@ function renderDetail() {
   el.innerHTML = `
     <div class="dashboard-content">
       <div class="breadcrumb">
-        <a onclick="navigate('overview')">Overview</a>
-        <span class="sep">/</span>
-        <a onclick="navigate('projects')">Projects</a>
+        ${parentBreadcrumb()}
         <span class="sep">/</span>
         <a onclick="navigateToSessions('${esc(d.encodedProjectPath)}', '${esc(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
@@ -900,14 +921,19 @@ async function navigate(view, params) {
     currentSessionId = null;
   }
 
-  const navView = view === 'sessions' || view === 'detail' ? 'projects' : view;
+  const navView = view === 'sessions' || view === 'detail' ? parentView : view;
   setActiveNav(navView);
   updateUrl();
   await loadAndRender(view);
+  if (view !== 'detail') selectRow(0);
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToSessions(encodedPath, name) {
+  if (currentView === 'overview' || currentView === 'projects') {
+    parentView = currentView;
+  }
+  lastSelectedProject = encodedPath;
   currentProjectPath = encodedPath;
   currentProjectName = name;
   await navigate('sessions', { project: encodedPath, projectName: name });
@@ -915,6 +941,7 @@ async function navigateToSessions(encodedPath, name) {
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToDetail(sessionId) {
+  lastSelectedSession = sessionId;
   currentSessionId = sessionId;
   await navigate('detail', { session: sessionId });
 }
@@ -1082,18 +1109,24 @@ function activateSelectedRow() {
   }
 }
 
-function goBack() {
+async function goBack() {
+  let target;
   if (currentView === 'detail') {
     if (currentProjectPath) {
-      navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+      target = 'sessions';
+      await navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
     } else {
-      navigate('projects');
+      target = parentView;
+      await navigate(parentView);
     }
   } else if (currentView === 'sessions') {
-    navigate('projects');
+    target = parentView;
+    await navigate(parentView);
   } else if (currentView === 'projects') {
-    navigate('overview');
+    target = 'overview';
+    await navigate('overview');
   }
+  if (target) focusPreviousRow(target);
 }
 
 document.addEventListener('keydown', (e) => {
@@ -1119,13 +1152,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '1') {
     e.preventDefault();
     navigate('overview');
-    selectedRowIdx = -1;
     return;
   }
   if (e.key === '2') {
     e.preventDefault();
     navigate('projects');
-    selectedRowIdx = -1;
     return;
   }
 
@@ -1143,13 +1174,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault();
     goBack();
-    selectedRowIdx = -1;
     return;
   }
   if (e.key === 'Backspace') {
     e.preventDefault();
     goBack();
-    selectedRowIdx = -1;
     return;
   }
 
@@ -1166,10 +1195,9 @@ document.addEventListener('keydown', (e) => {
     if (rows.length) selectRow(Math.max(selectedRowIdx - 1, 0));
     return;
   }
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault();
     activateSelectedRow();
-    selectedRowIdx = -1;
     return;
   }
 });
@@ -1228,6 +1256,14 @@ window.hubNavigate = function hubNavigate(app, url) {
 
 loadTheme();
 
+document.addEventListener('click', async (e) => {
+  if (e.target.matches('.parent-breadcrumb')) {
+    const target = parentView;
+    await navigate(target);
+    focusPreviousRow(target);
+  }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   const state = getUrlState();
   dateRange = loadDateRange();
@@ -1238,10 +1274,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (state.session) {
     currentSessionId = state.session;
+    parentView = state.parentView;
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
     await navigate('detail', { session: state.session });
   } else if (state.project) {
+    parentView = state.parentView;
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
     await navigate('sessions', { project: state.project, projectName: state.projectName });
@@ -1256,6 +1294,7 @@ window.addEventListener('popstate', () => {
   const state = getUrlState();
   currentView = state.view || 'overview';
   loadSort(currentView);
+  parentView = state.parentView;
   currentProjectPath = state.project;
   currentProjectName = state.projectName;
   currentSessionId = state.session;
