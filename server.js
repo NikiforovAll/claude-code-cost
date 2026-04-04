@@ -306,6 +306,73 @@ function getSessionIdFromFile(filePath) {
   return path.basename(filePath, '.jsonl');
 }
 
+function scanSubagentDir(sessionDir) {
+  const subagentsDir = path.join(sessionDir, 'subagents');
+  const result = [];
+  try {
+    for (const f of fs.readdirSync(subagentsDir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      const agentId = f.replace('.jsonl', '');
+      const metaPath = path.join(subagentsDir, `${agentId}.meta.json`);
+      let meta = {};
+      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch { /* no meta */ }
+      result.push({
+        agentId,
+        filePath: path.join(subagentsDir, f),
+        agentType: meta.agentType || 'unknown',
+        description: meta.description || '',
+      });
+    }
+  } catch { /* dir doesn't exist or unreadable */ }
+  return result;
+}
+
+function mostFrequentModel(counts) {
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
+}
+
+async function loadSubagentData(subagentInfos, pricing) {
+  return Promise.all(subagentInfos.map(async (info) => {
+    const agent = {
+      agentId: info.agentId,
+      agentType: info.agentType,
+      description: info.description,
+      totalCost: 0,
+      inputTokens: 0, outputTokens: 0,
+      cacheCreationTokens: 0, cacheReadTokens: 0,
+      messageCount: 0,
+      models: new Set(),
+      firstTimestamp: null,
+    };
+    const seen = new Set();
+    await processJSONLFile(info.filePath, async (line) => {
+      let parsed;
+      try { parsed = JSON.parse(line); } catch { return; }
+      if (!parsed.message?.usage?.input_tokens && parsed.message?.usage?.input_tokens !== 0) return;
+      if (!parsed.timestamp) return;
+
+      const hash = createDedupeHash(parsed);
+      if (hash && seen.has(hash)) return;
+      if (hash) seen.add(hash);
+
+      const cost = calculateEntryCost(parsed, pricing);
+      const usage = parsed.message.usage;
+      agent.totalCost += cost;
+      agent.inputTokens += usage.input_tokens || 0;
+      agent.outputTokens += usage.output_tokens || 0;
+      agent.cacheCreationTokens += (usage.cache_creation_input_tokens || 0);
+      agent.cacheReadTokens += (usage.cache_read_input_tokens || 0);
+      agent.messageCount++;
+      agent.models.add(parsed.message?.model || 'unknown');
+      if (!agent.firstTimestamp || parsed.timestamp < agent.firstTimestamp) {
+        agent.firstTimestamp = parsed.timestamp;
+      }
+    });
+    agent.models = [...agent.models];
+    return agent;
+  }));
+}
+
 async function loadProjectData(files, pricing) {
   const sessions = new Map();
   const seen = new Set();
@@ -380,6 +447,32 @@ async function loadProjectData(files, pricing) {
         }
       }
     });
+
+    // Fold subagent costs into session totals
+    const sessionDir = path.join(path.dirname(file), sessionId);
+    const subagentInfos = scanSubagentDir(sessionDir);
+    if (subagentInfos.length > 0) {
+      const subagents = await loadSubagentData(subagentInfos, pricing);
+      for (const sa of subagents) {
+        session.totalCost += sa.totalCost;
+        session.inputTokens += sa.inputTokens;
+        session.outputTokens += sa.outputTokens;
+        session.cacheCreationTokens += sa.cacheCreationTokens;
+        session.cacheReadTokens += sa.cacheReadTokens;
+        for (const m of sa.models) session.models.add(m);
+        session.messages.push({
+          timestamp: sa.firstTimestamp || session.firstTimestamp,
+          model: sa.models[0] || 'unknown',
+          cost: sa.totalCost,
+          inputTokens: sa.inputTokens,
+          outputTokens: sa.outputTokens,
+          cacheCreationTokens: sa.cacheCreationTokens,
+          cacheReadTokens: sa.cacheReadTokens,
+          speed: 'standard',
+          _subagent: { agentId: sa.agentId, agentType: sa.agentType, description: sa.description, messageCount: sa.messageCount },
+        });
+      }
+    }
   }
 
   return sessions;
@@ -494,7 +587,7 @@ async function getProjectsData(days) {
   for (const [encodedPath, proj] of projects) {
     const sessions = await loadProjectData(proj.files, pricing);
     let totalCost = 0, sessionCount = 0, lastActive = null;
-    const models = new Set();
+    const projModelCounts = {};
 
     for (const [, session] of sessions) {
       const msgs = cutoffStr
@@ -505,7 +598,11 @@ async function getProjectsData(days) {
       const cost = msgs.reduce((s, m) => s + m.cost, 0);
       totalCost += cost;
       sessionCount++;
-      for (const m of session.models) models.add(m);
+      for (const m of msgs) {
+        if (m.model && !m.model.startsWith('<')) {
+          projModelCounts[m.model] = (projModelCounts[m.model] || 0) + 1;
+        }
+      }
       if (!lastActive || (session.lastTimestamp && session.lastTimestamp > lastActive)) {
         lastActive = session.lastTimestamp;
       }
@@ -518,7 +615,7 @@ async function getProjectsData(days) {
         totalCost,
         sessionCount,
         lastActive,
-        primaryModel: [...models][0] || 'unknown',
+        primaryModel: mostFrequentModel(projModelCounts),
       });
     }
   }
@@ -553,6 +650,7 @@ async function getProjectSessionsData(encodedPath, days) {
     if (msgs.length === 0) continue;
 
     let cost = 0, input = 0, output = 0, cacheCreation = 0, cacheRead = 0;
+    const sessionModelCounts = {};
     for (const m of msgs) {
       cost += m.cost; input += m.inputTokens; output += m.outputTokens;
       cacheCreation += m.cacheCreationTokens; cacheRead += m.cacheReadTokens;
@@ -560,11 +658,13 @@ async function getProjectSessionsData(encodedPath, days) {
       dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
       if (m.model && !m.model.startsWith('<')) {
         modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
+        sessionModelCounts[m.model] = (sessionModelCounts[m.model] || 0) + 1;
       }
     }
     const durationMs = session.firstTimestamp && session.lastTimestamp
       ? new Date(session.lastTimestamp) - new Date(session.firstTimestamp)
       : 0;
+    const primaryModel = mostFrequentModel(sessionModelCounts);
 
     result.push({
       sessionId: session.sessionId,
@@ -577,7 +677,7 @@ async function getProjectSessionsData(encodedPath, days) {
       totalTokens: input + output + cacheCreation + cacheRead,
       messageCount: msgs.length,
       models: [...session.models],
-      primaryModel: [...session.models][0] || 'unknown',
+      primaryModel,
       firstPrompt: session.firstPrompt,
       firstTimestamp: session.firstTimestamp,
       lastTimestamp: session.lastTimestamp,

@@ -533,6 +533,22 @@ body {
 
 /* #endregion */
 
+/* #region SUBAGENT */
+
+.subagent-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* #endregion */
+
 /* #region LOADING */
 
 .loading-state {

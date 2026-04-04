@@ -72,7 +72,10 @@ function shortDate(dateStr) {
 
 function shortModel(model) {
   if (!model) return 'unknown';
-  return model.replace('anthropic/', '').replace(/-\d{8}$/, '');
+  return model
+    .replace('anthropic/', '')
+    .replace(/^claude-/, '')
+    .replace(/-\d{8}$/, '');
 }
 
 function sortCompare(a, b, field, order) {
@@ -121,7 +124,11 @@ function focusPreviousRow(view) {
 // #region URL_STATE
 
 function getUrlState() {
-  const p = new URLSearchParams(window.location.search);
+  let p = new URLSearchParams(window.location.search);
+  if (!p.has('view') && !p.has('session') && !p.has('project')) {
+    const saved = sessionStorage.getItem('cc-cost:nav');
+    if (saved) p = new URLSearchParams(saved);
+  }
   return {
     view: p.get('view') || 'overview',
     project: p.get('project'),
@@ -170,6 +177,7 @@ function updateUrl() {
   if (sortOrder !== 'desc') p.set('order', sortOrder);
   const qs = p.toString();
   history.replaceState(null, '', qs ? `?${qs}` : '/');
+  sessionStorage.setItem('cc-cost:nav', qs);
 }
 
 // #endregion
@@ -560,7 +568,10 @@ function renderDetail() {
         </div>
         <div class="detail-stat">
           <div class="detail-label">Models</div>
-          <div class="detail-value">${d.models.map((m) => shortModel(m)).join(', ')}</div>
+          <div class="detail-value">${d.models
+            .map((m) => shortModel(m))
+            .filter(Boolean)
+            .join(', ')}</div>
         </div>
       </div>
 
@@ -589,31 +600,41 @@ function renderDetail() {
           <th>Cumulative</th>
         </tr></thead>
         <tbody>
-          ${[...d.messages]
-            .reverse()
-            .map(
-              (m) => `
-            <tr>
-              <td class="muted">${m.index}</td>
-              <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
-              <td><span class="model-badge">${esc(shortModel(m.model))}</span></td>
-              <td>${formatTokens(m.inputTokens)}</td>
-              <td>${formatTokens(m.outputTokens)}</td>
-              <td>${formatTokens(m.cacheCreationTokens)}</td>
-              <td>${formatTokens(m.cacheReadTokens)}</td>
-              <td class="cost-cell">${formatCost(m.cost)}</td>
-              <td class="cumulative">${formatCost(m.cumulativeCost)}</td>
-            </tr>`,
-            )
-            .join('')}
+          ${buildMessageRowsWithSubagents(d)}
         </tbody>
       </table>
     </div>`;
 
   requestAnimationFrame(() => {
-    renderCumulativeChart(d.messages);
-    renderTokenBreakdownChart(d.messages);
+    const parentMessages = d.messages.filter((m) => !m._subagent);
+    renderCumulativeChart(parentMessages);
+    renderTokenBreakdownChart(parentMessages);
   });
+}
+
+function buildMessageRowsWithSubagents(d) {
+  return [...d.messages]
+    .reverse()
+    .map((m) => buildMessageRow(m))
+    .join('');
+}
+
+function buildMessageRow(m) {
+  const sa = m._subagent;
+  const modelCol = sa
+    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.agentType)}</span>`
+    : `<span class="model-badge">${esc(shortModel(m.model))}</span>`;
+  return `<tr>
+    <td class="muted">${m.index}</td>
+    <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
+    <td>${modelCol}</td>
+    <td>${formatTokens(m.inputTokens)}</td>
+    <td>${formatTokens(m.outputTokens)}</td>
+    <td>${formatTokens(m.cacheCreationTokens)}</td>
+    <td>${formatTokens(m.cacheReadTokens)}</td>
+    <td class="cost-cell">${formatCost(m.cost)}</td>
+    <td class="cumulative">${formatCost(m.cumulativeCost)}</td>
+  </tr>`;
 }
 
 // #endregion
