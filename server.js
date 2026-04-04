@@ -183,14 +183,6 @@ async function processJSONLFile(filePath, processLine) {
   }
 }
 
-function parseUsageLine(line) {
-  try {
-    const data = JSON.parse(line);
-    if (!data.message?.usage?.input_tokens && data.message?.usage?.input_tokens !== 0) return null;
-    if (!data.timestamp) return null;
-    return data;
-  } catch { return null; }
-}
 
 function createDedupeHash(data) {
   const mid = data.message?.id;
@@ -311,6 +303,7 @@ async function loadProjectData(files, pricing) {
         messages: [],
         models: new Set(),
         firstPrompt: '',
+        customTitle: null,
         firstTimestamp: null,
         lastTimestamp: null,
       });
@@ -318,17 +311,25 @@ async function loadProjectData(files, pricing) {
     const session = sessions.get(sessionId);
 
     await processJSONLFile(file, async (line) => {
-      const data = parseUsageLine(line);
-      if (!data) return;
+      let parsed;
+      try { parsed = JSON.parse(line); } catch { return; }
 
-      const hash = createDedupeHash(data);
+      if (parsed.type === 'custom-title' && parsed.customTitle) {
+        session.customTitle = parsed.customTitle;
+        return;
+      }
+
+      if (!parsed.message?.usage?.input_tokens && parsed.message?.usage?.input_tokens !== 0) return;
+      if (!parsed.timestamp) return;
+
+      const hash = createDedupeHash(parsed);
       if (hash && seen.has(hash)) return;
       if (hash) seen.add(hash);
 
-      const cost = calculateEntryCost(data, pricing);
-      const usage = data.message.usage;
-      const model = data.message?.model || 'unknown';
-      const ts = data.timestamp;
+      const cost = calculateEntryCost(parsed, pricing);
+      const usage = parsed.message.usage;
+      const model = parsed.message?.model || 'unknown';
+      const ts = parsed.timestamp;
 
       session.totalCost += cost;
       session.inputTokens += usage.input_tokens || 0;
@@ -352,10 +353,10 @@ async function loadProjectData(files, pricing) {
       });
 
       // Capture first user prompt from the JSONL (look for human/user messages)
-      if (!session.firstPrompt && data.type === 'human' && data.message?.content) {
-        const content = Array.isArray(data.message.content)
-          ? data.message.content.map(c => c.text || '').join(' ')
-          : (typeof data.message.content === 'string' ? data.message.content : '');
+      if (!session.firstPrompt && parsed.type === 'human' && parsed.message?.content) {
+        const content = Array.isArray(parsed.message.content)
+          ? parsed.message.content.map(c => c.text || '').join(' ')
+          : (typeof parsed.message.content === 'string' ? parsed.message.content : '');
         if (content.trim()) {
           session.firstPrompt = content.trim().slice(0, 120);
         }
@@ -553,6 +554,7 @@ async function getProjectSessionsData(encodedPath, days) {
 
     result.push({
       sessionId: session.sessionId,
+      customTitle: session.customTitle,
       totalCost: cost,
       inputTokens: input,
       outputTokens: output,
@@ -602,6 +604,7 @@ async function getSessionDetailData(sessionId) {
 
     const result = {
       sessionId,
+      customTitle: session.customTitle,
       projectPath: decodeProjectPath(encodedPath),
       encodedProjectPath: encodedPath,
       totalCost: session.totalCost,

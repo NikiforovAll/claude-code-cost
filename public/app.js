@@ -437,7 +437,7 @@ function renderSessions() {
             .map(
               (s) => `
             <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
-              <td class="truncate" title="${esc(s.firstPrompt || s.sessionId)}">${esc(s.firstPrompt || `${s.sessionId.slice(0, 8)}...`)}</td>
+              <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || `${s.sessionId.slice(0, 8)}...`)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
               <td>${s.messageCount}</td>
@@ -478,7 +478,7 @@ function renderDetail() {
         <span class="sep">/</span>
         <a onclick="navigateToSessions('${esc(d.encodedProjectPath)}', '${esc(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
-        <span class="current">${esc(d.sessionId.slice(0, 12))}...</span>
+        <span class="current">${esc(d.customTitle || d.firstPrompt || `${d.sessionId.slice(0, 12)}...`)}</span>
       </div>
 
       ${d.firstPrompt ? `<div style="color:var(--text-tertiary);font-size:12px;margin-bottom:16px;font-style:italic">"${esc(d.firstPrompt)}"</div>` : ''}
