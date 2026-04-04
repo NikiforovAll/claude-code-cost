@@ -67,10 +67,7 @@ function shortDate(dateStr) {
 
 function shortModel(model) {
   if (!model) return 'unknown';
-  return model
-    .replace('anthropic/', '')
-    .replace(/-\d{8}$/, '')
-    .replace('claude-', 'c-');
+  return model.replace('anthropic/', '').replace(/-\d{8}$/, '');
 }
 
 function hash(data) {
