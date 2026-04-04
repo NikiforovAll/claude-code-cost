@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Cost — Know what Claude Code costs you</title>
+  <meta name="description" content="A cost visualization dashboard for Claude Code. Track spending per day, per project, per session with dynamic pricing and drill-down views.">
+  <meta property="og:title" content="Claude Code Cost">
+  <meta property="og:description" content="Know what Claude Code costs you — per day, per project, per session.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikiforovall.blog/claude-code-cost/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/NikiforovAll/claude-code-cost/main/assets/overview-dark.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a1a'/%3E%3Cpath d='M16 6v20M20 10h-5.5a3.5 3.5 0 000 7h3a3.5 3.5 0 010 7H12' stroke='%23e8927c' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #faf9f7;
+      --bg-alt: #f3f1ee;
+      --bg-dark: #1a1a1a;
+      --text: #2a2a2a;
+      --text-secondary: #5a5a5a;
+      --text-muted: #8a8a8a;
+      --accent: #E86F33;
+      --accent-light: #e8927c;
+      --accent-dim: rgba(232, 111, 51, 0.1);
+      --accent-glow: rgba(232, 111, 51, 0.25);
+      --border: #e0ddd8;
+      --mono: 'IBM Plex Mono', monospace;
+      --serif: 'Playfair Display', serif;
+      --max-w: 1120px;
+      --section-gap: 120px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--mono);
+      font-size: 15px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-size: 256px 256px;
+      z-index: 9999;
+    }
+
+    .container { max-width: var(--max-w); margin: 0 auto; padding: 0 32px; }
+
+    /* -- NAV -- */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(250, 249, 247, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      transition: box-shadow 0.3s;
+    }
+    nav.scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.06); }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .nav-brand svg { width: 28px; height: 28px; }
+    .nav-brand span {
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: -0.02em;
+    }
+    .nav-links { display: flex; align-items: center; gap: 24px; }
+    .nav-links a {
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent); }
+    .nav-gh {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text);
+      text-decoration: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .nav-gh:hover { border-color: var(--accent); background: var(--accent-dim); }
+    .nav-gh svg { width: 16px; height: 16px; }
+
+    /* -- HERO -- */
+    .hero {
+      padding-top: 140px;
+      padding-bottom: var(--section-gap);
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(232, 111, 51, 0.2);
+      border-radius: 100px;
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 500;
+      margin-bottom: 32px;
+      letter-spacing: 0.02em;
+    }
+    .hero-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .hero h1 {
+      font-family: var(--serif);
+      font-size: clamp(40px, 6vw, 68px);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      color: var(--bg-dark);
+      margin-bottom: 24px;
+    }
+    .hero h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+    .hero-sub {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+
+    /* Install block */
+    .install-block {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      background: var(--bg-dark);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 56px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    }
+    .install-block code {
+      display: block;
+      padding: 14px 20px 14px 24px;
+      font-family: var(--mono);
+      font-size: 14px;
+      color: #f0f1f3;
+      white-space: nowrap;
+      letter-spacing: -0.01em;
+    }
+    .install-block code .prompt { color: var(--accent-light); }
+    .install-copy {
+      padding: 14px 18px;
+      background: none;
+      border: none;
+      border-left: 1px solid #333;
+      color: #888;
+      cursor: pointer;
+      transition: color 0.2s, background 0.2s;
+      display: flex;
+      align-items: center;
+    }
+    .install-copy:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .install-copy svg { width: 16px; height: 16px; }
+    .install-copy.copied { color: #3ecf8e; }
+
+    /* Hero screenshot */
+    .hero-screenshot {
+      max-width: 960px;
+      margin: 0 auto;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow:
+        0 8px 40px rgba(0,0,0,0.12),
+        0 2px 8px rgba(0,0,0,0.06);
+      transform: perspective(1200px) rotateX(2deg);
+      transition: transform 0.4s ease;
+    }
+    .hero-screenshot:hover { transform: perspective(1200px) rotateX(0deg); }
+    .hero-screenshot { cursor: pointer; }
+    .hero-screenshot img {
+      width: 100%;
+      display: block;
+    }
+
+    /* -- FEATURES -- */
+    .features { padding-bottom: var(--section-gap); }
+    .section-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-family: var(--serif);
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 600;
+      color: var(--bg-dark);
+      letter-spacing: -0.02em;
+      margin-bottom: 56px;
+      line-height: 1.2;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      padding: 28px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: default;
+      transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+    }
+    .feature-card:hover {
+      border-color: var(--accent-light);
+      box-shadow: 0 4px 20px var(--accent-glow);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-dim);
+      border-radius: 8px;
+      margin-bottom: 16px;
+      color: var(--accent);
+      font-size: 18px;
+    }
+    .feature-card h3 {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--bg-dark);
+    }
+    .feature-card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* -- HOW IT WORKS -- */
+    .how-it-works {
+      padding-bottom: var(--section-gap);
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      position: relative;
+    }
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 32px;
+      left: calc(33.33% / 2 + 32px);
+      right: calc(33.33% / 2 + 32px);
+      height: 2px;
+      background: var(--border);
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step-num {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--serif);
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--bg);
+      border: 2px solid var(--border);
+      margin: 0 auto 20px;
+      position: relative;
+      z-index: 1;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .step:hover .step-num {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .step-code {
+      display: inline-block;
+      padding: 8px 16px;
+      background: var(--bg-dark);
+      border-radius: 6px;
+      font-size: 12px;
+      color: #f0f1f3;
+      margin-top: 12px;
+      font-family: var(--mono);
+    }
+    .step h3 {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--bg-dark);
+    }
+    .step p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      max-width: 260px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* -- SCREENSHOTS -- */
+    .screenshots {
+      padding-bottom: var(--section-gap);
+    }
+    .screenshots-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 40px;
+    }
+    .theme-toggle {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--bg-alt);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .theme-toggle button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .theme-toggle button.active {
+      background: var(--bg);
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .ss-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .screenshot-frame {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.08);
+      cursor: pointer;
+      position: relative;
+    }
+    .screenshot-frame::after {
+      content: 'Click to enlarge';
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      padding: 4px 10px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 11px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .screenshot-frame:hover::after { opacity: 1; }
+    .screenshot-frame img {
+      width: 100%;
+      display: block;
+    }
+    .screenshot-frame img.hidden { display: none; }
+    .ss-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 8px;
+      font-weight: 500;
+    }
+
+    /* -- LIGHTBOX -- */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+    .lightbox.open {
+      opacity: 1;
+      visibility: visible;
+    }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 12px;
+      box-shadow: 0 16px 64px rgba(0,0,0,0.6);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+    }
+    .lightbox.open img { transform: scale(1); }
+    .lightbox-close {
+      position: absolute;
+      top: 24px;
+      right: 32px;
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      border-radius: 50%;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    .lightbox-close:hover { background: rgba(255,255,255,0.2); }
+
+    /* -- FAQ -- */
+    .faq { padding-bottom: var(--section-gap); }
+    .faq-list { max-width: 720px; }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+    }
+    .faq-item:first-child { border-top: 1px solid var(--border); }
+    .faq-q {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 20px 0;
+      background: none;
+      border: none;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      gap: 16px;
+    }
+    .faq-q:hover { color: var(--accent); }
+    .faq-chevron {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      transition: transform 0.3s;
+      color: var(--text-muted);
+    }
+    .faq-item.open .faq-chevron { transform: rotate(180deg); }
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s ease, padding 0.35s ease;
+    }
+    .faq-item.open .faq-a {
+      max-height: 200px;
+      padding-bottom: 20px;
+    }
+    .faq-a p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    /* -- FOOTER -- */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+    }
+    footer .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .footer-left a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-left a:hover { color: var(--accent); }
+    .footer-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .footer-right a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color 0.2s;
+    }
+    .footer-right a:hover { color: var(--accent); }
+
+    /* -- ANIMATIONS -- */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .fade-in.delay-1 { transition-delay: 0.1s; }
+    .fade-in.delay-2 { transition-delay: 0.2s; }
+    .fade-in.delay-3 { transition-delay: 0.3s; }
+    .fade-in.delay-4 { transition-delay: 0.4s; }
+    .fade-in.delay-5 { transition-delay: 0.5s; }
+
+    /* -- RESPONSIVE -- */
+    @media (max-width: 768px) {
+      :root { --section-gap: 80px; }
+      .container { padding: 0 20px; }
+      .hero { padding-top: 110px; }
+      .hero-sub { font-size: 14px; }
+      .features-grid { grid-template-columns: 1fr; gap: 16px; }
+      .steps { grid-template-columns: 1fr; gap: 40px; }
+      .steps::before { display: none; }
+      .nav-links a:not(.nav-gh) { display: none; }
+      .screenshots-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+      .hero-screenshot { transform: none; }
+      .hero-screenshot:hover { transform: none; }
+      .install-block code { font-size: 12px; padding: 12px 14px; }
+      footer .container { flex-direction: column; gap: 16px; text-align: center; }
+      .ss-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container">
+      <a href="#" class="nav-brand">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="6" fill="#1a1a1a"/>
+          <path d="M16 6v20M20 10h-5.5a3.5 3.5 0 000 7h3a3.5 3.5 0 010 7H12" stroke="#e8927c" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>Claude Code Cost</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/NikiforovAll/claude-code-cost" class="nav-gh" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <div class="fade-in">
+        <div class="hero-badge">
+          <span class="dot"></span>
+          Open source &middot; MIT
+        </div>
+      </div>
+      <h1 class="fade-in delay-1">Know what Claude Code<br><em>costs</em> you</h1>
+      <p class="hero-sub fade-in delay-2">A cost visualization dashboard for Claude Code. Track spending per day, per project, per session -- with dynamic pricing and drill-down views.</p>
+      <div class="fade-in delay-3">
+        <div class="install-block">
+          <code><span class="prompt">$</span> npx claude-code-cost --open</code>
+          <button class="install-copy" onclick="copyInstall(this)" title="Copy to clipboard">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="hero-screenshot fade-in delay-4">
+        <img src="assets/overview-dark.png" alt="Claude Code Cost dashboard">
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="features" id="features">
+    <div class="container">
+      <p class="section-label fade-in">Features</p>
+      <h2 class="section-title fade-in">Everything you need to<br>understand your Claude Code spend</h2>
+      <div class="features-grid">
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17V7l4-4h6l4 4v10H3z"/><path d="M7 17v-5h6v5"/></svg>
+          </div>
+          <h3>Top-down drill-down</h3>
+          <p>Total cost to per-project to per-session to per-message. Click through to see exactly where your budget goes.</p>
+        </div>
+        <div class="feature-card fade-in delay-1">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v16M14 6h-5.5a3 3 0 000 6h3a3 3 0 010 6H6"/></svg>
+          </div>
+          <h3>Dynamic pricing</h3>
+          <p>Live model prices from LiteLLM. Tiered pricing at 200K tokens, cache token costs, and fast mode multipliers -- all handled automatically.</p>
+        </div>
+        <div class="feature-card fade-in delay-2">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="3" height="12" rx="1"/><rect x="8.5" y="3" width="3" height="15" rx="1"/><rect x="15" y="8" width="3" height="10" rx="1"/></svg>
+          </div>
+          <h3>Daily cost chart</h3>
+          <p>Bar chart with configurable date range: 1 day, 3 days, 7 days, 30 days, 90 days, or 1 year. See trends at a glance.</p>
+        </div>
+        <div class="feature-card fade-in delay-3">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 10V4"/><path d="M10 10l5 5"/></svg>
+          </div>
+          <h3>Model breakdown</h3>
+          <p>See cost distribution across models. Know how much you spend on Opus vs Sonnet vs Haiku.</p>
+        </div>
+        <div class="feature-card fade-in delay-4">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.05 5.05l1.41 1.41M13.54 13.54l1.41 1.41M5.05 14.95l1.41-1.41M13.54 6.46l1.41-1.41"/></svg>
+          </div>
+          <h3>Dark / light theme</h3>
+          <p>Styled with IBM Plex Mono and Playfair Display. Automatic theme detection or manual toggle. PWA installable.</p>
+        </div>
+        <div class="feature-card fade-in delay-5">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h12v12H4z"/><path d="M4 8h12M8 4v12"/></svg>
+          </div>
+          <h3>Cache efficiency</h3>
+          <p>Track how well prompt caching works across sessions. See cache read ratios and creation costs per message.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how-it-works" id="how-it-works">
+    <div class="container">
+      <p class="section-label fade-in">Setup</p>
+      <h2 class="section-title fade-in">One command. Full cost visibility.</h2>
+      <div class="steps">
+        <div class="step fade-in">
+          <div class="step-num">1</div>
+          <h3>Run it</h3>
+          <p>One command to launch. No setup, no config, no hooks. Opens in your browser.</p>
+          <div class="step-code">npx claude-code-cost --open</div>
+        </div>
+        <div class="step fade-in delay-2">
+          <div class="step-num">2</div>
+          <h3>Browse costs</h3>
+          <p>Overview with daily chart, model distribution, and project breakdown. Click any project to drill down.</p>
+          <div class="step-code">localhost:3458</div>
+        </div>
+        <div class="step fade-in delay-4">
+          <div class="step-num">3</div>
+          <h3>Drill down</h3>
+          <p>Project to session to message. See token counts, costs, and cumulative spend for every API call.</p>
+          <div class="step-code">total / project / session / message</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREENSHOTS -->
+  <section class="screenshots" id="screenshots">
+    <div class="container">
+      <div class="screenshots-header">
+        <div>
+          <p class="section-label fade-in">Preview</p>
+          <h2 class="section-title fade-in" style="margin-bottom:0">See it in action</h2>
+        </div>
+        <div class="theme-toggle fade-in">
+          <button class="active" onclick="showScreenshot('dark', this)">Dark</button>
+          <button onclick="showScreenshot('light', this)">Light</button>
+        </div>
+      </div>
+      <div class="ss-grid">
+        <div>
+          <div class="screenshot-frame fade-in">
+            <img class="ss-dark" src="assets/overview-dark.png" alt="Overview dark">
+            <img class="ss-light hidden" src="assets/overview-light.png" alt="Overview light">
+          </div>
+          <div class="ss-label">Overview</div>
+        </div>
+        <div>
+          <div class="screenshot-frame fade-in delay-1">
+            <img class="ss-dark" src="assets/projects-dark.png" alt="Projects dark">
+            <img class="ss-light hidden" src="assets/projects-light.png" alt="Projects light">
+          </div>
+          <div class="ss-label">Projects</div>
+        </div>
+        <div>
+          <div class="screenshot-frame fade-in delay-2">
+            <img class="ss-dark" src="assets/session-dark.png" alt="Session dark">
+            <img class="ss-light hidden" src="assets/sesssion-light.png" alt="Session light">
+          </div>
+          <div class="ss-label">Session Detail</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="faq" id="faq">
+    <div class="container">
+      <p class="section-label fade-in">FAQ</p>
+      <h2 class="section-title fade-in">Common questions</h2>
+      <div class="faq-list">
+        <div class="faq-item fade-in">
+          <button class="faq-q" onclick="toggleFaq(this)">
+            Where does pricing data come from?
+            <svg class="faq-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l5 5 5-5"/></svg>
+          </button>
+          <div class="faq-a"><p>Live from <a href="https://github.com/BerriAI/litellm" target="_blank" rel="noopener" style="color:var(--accent)">LiteLLM's pricing dataset</a> (2000+ models). Cached for 6 hours. If the fetch fails, a bundled offline snapshot of Claude model prices is used.</p></div>
+        </div>
+        <div class="faq-item fade-in delay-1">
+          <button class="faq-q" onclick="toggleFaq(this)">
+            Does it work offline?
+            <svg class="faq-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l5 5 5-5"/></svg>
+          </button>
+          <div class="faq-a"><p>Yes. The offline pricing fallback covers all current Claude models. PWA support is included for installability.</p></div>
+        </div>
+        <div class="faq-item fade-in delay-2">
+          <button class="faq-q" onclick="toggleFaq(this)">
+            Does it modify any files?
+            <svg class="faq-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l5 5 5-5"/></svg>
+          </button>
+          <div class="faq-a"><p>No. Completely read-only. It only reads JSONL session files from <code>~/.claude/projects/</code>. Nothing is written or modified.</p></div>
+        </div>
+        <div class="faq-item fade-in delay-3">
+          <button class="faq-q" onclick="toggleFaq(this)">
+            Are the costs accurate?
+            <svg class="faq-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l5 5 5-5"/></svg>
+          </button>
+          <div class="faq-a"><p>Costs are estimates based on token counts and publicly available model pricing. They use pre-calculated <code>costUSD</code> when available in session files, otherwise calculate from tokens. Actual billing may differ slightly.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIGHTBOX -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container">
+      <div class="footer-left">
+        <span>MIT License</span>
+        <a href="https://github.com/NikiforovAll/claude-code-cost" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="footer-right">
+        <a href="https://github.com/NikiforovAll" target="_blank" rel="noopener">Built by NikiforovAll</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const nav = document.querySelector('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 10);
+    }, { passive: true });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          observer.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    function copyInstall(btn) {
+      navigator.clipboard.writeText('npx claude-code-cost --open').then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3 3 7-7"/></svg>';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>';
+        }, 2000);
+      });
+    }
+
+    document.querySelectorAll('.screenshot-frame, .hero-screenshot').forEach(el => {
+      el.addEventListener('click', () => {
+        const img = el.querySelector('img:not(.hidden)');
+        if (!img) return;
+        const lb = document.getElementById('lightbox');
+        document.getElementById('lightbox-img').src = img.src;
+        lb.classList.add('open');
+        document.body.style.overflow = 'hidden';
+      });
+    });
+
+    function closeLightbox() {
+      const lb = document.getElementById('lightbox');
+      lb.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    function showScreenshot(theme, btn) {
+      document.querySelectorAll('.ss-dark').forEach(el => el.classList.toggle('hidden', theme !== 'dark'));
+      document.querySelectorAll('.ss-light').forEach(el => el.classList.toggle('hidden', theme !== 'light'));
+      btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function toggleFaq(btn) {
+      const item = btn.parentElement;
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
+      if (!wasOpen) item.classList.add('open');
+    }
+  </script>
+
+</body>
+</html>

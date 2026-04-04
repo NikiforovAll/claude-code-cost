@@ -1,12 +1,10 @@
 # Claude Code Cost
 
+[![npm version](https://img.shields.io/npm/v/claude-code-cost)](https://www.npmjs.com/package/claude-code-cost)
 [![license](https://img.shields.io/npm/l/claude-code-cost)](LICENSE)
+[![npm downloads](https://img.shields.io/npm/dm/claude-code-cost)](https://www.npmjs.com/package/claude-code-cost)
 
 > Know what Claude Code costs you — per day, per project, per session.
-
-![Dark mode](assets/screenshot-dark.png)
-
-![Light mode](assets/screenshot-light.png)
 
 ## Getting Started
 
@@ -17,6 +15,21 @@ npx claude-code-cost --open
 Open http://localhost:3458 (or use `--open` to auto-launch the browser).
 
 That's it. No hooks, no config — the dashboard reads your existing Claude Code session files.
+
+### Overview
+
+![Overview — Dark](assets/overview-dark.png)
+![Overview — Light](assets/overview-light.png)
+
+### Projects
+
+![Projects — Dark](assets/projects-dark.png)
+![Projects — Light](assets/projects-light.png)
+
+### Session Detail
+
+![Session — Dark](assets/session-dark.png)
+![Session — Light](assets/sesssion-light.png)
 
 ## Features
 
