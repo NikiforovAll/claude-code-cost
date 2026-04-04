@@ -134,8 +134,6 @@ function getUrlState() {
     project: p.get('project'),
     projectName: p.get('projectName'),
     session: p.get('session'),
-    sort: p.get('sort'),
-    order: p.get('order'),
     parentView: p.get('parentView') || 'projects',
   };
 }
@@ -173,8 +171,6 @@ function updateUrl() {
   if (currentProjectName) p.set('projectName', currentProjectName);
   if (currentSessionId) p.set('session', currentSessionId);
   if (parentView !== 'projects') p.set('parentView', parentView);
-  if (sortField !== 'totalCost') p.set('sort', sortField);
-  if (sortOrder !== 'desc') p.set('order', sortOrder);
   const qs = p.toString();
   history.replaceState(null, '', qs ? `?${qs}` : '/');
   sessionStorage.setItem('cc-cost:nav', qs);
@@ -229,11 +225,12 @@ function pruneLocalCache() {
   for (let i = 0; i < toRemove; i++) localStorage.removeItem(entries[i].k);
 }
 
+const PREF_KEYS = new Set(['cc-cost:sort', 'cc-cost:range']);
 function clearLocalCache() {
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k.startsWith('cc-cost:')) keys.push(k);
+    if (k.startsWith('cc-cost:') && !PREF_KEYS.has(k)) keys.push(k);
   }
   keys.forEach((k) => localStorage.removeItem(k));
 }
@@ -1292,9 +1289,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const state = getUrlState();
   dateRange = loadDateRange();
   document.getElementById('rangeSelect').value = dateRange;
-
-  if (state.sort) sortField = state.sort;
-  if (state.order) sortOrder = state.order;
 
   if (state.session) {
     currentSessionId = state.session;
