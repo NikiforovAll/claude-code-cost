@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-cost",
+  "version": "0.1.0",
+  "description": "Cost dashboard for Claude Code usage",
+  "main": "server.js",
+  "bin": {
+    "claude-code-cost": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --open"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "open": "^11.0.0"
+  },
+  "license": "MIT"
+}
