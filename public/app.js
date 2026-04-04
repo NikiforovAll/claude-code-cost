@@ -70,8 +70,23 @@ function shortModel(model) {
   return model.replace('anthropic/', '').replace(/-\d{8}$/, '');
 }
 
-function hash(data) {
-  return JSON.stringify(data);
+function sortCompare(a, b, field, order) {
+  let va = a[field],
+    vb = b[field];
+  if (typeof va === 'string') va = va.toLowerCase();
+  if (typeof vb === 'string') vb = vb.toLowerCase();
+  if (va < vb) return order === 'asc' ? -1 : 1;
+  if (va > vb) return order === 'asc' ? 1 : -1;
+  return 0;
+}
+
+function sortArrow(field) {
+  if (sortField !== field) return '';
+  return `<span class="sort-arrow">${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}</span>`;
+}
+
+function thClass(field) {
+  return sortField === field ? 'sorted' : '';
 }
 
 // #endregion
@@ -210,7 +225,7 @@ function renderOverview() {
   }
 
   const s = overviewData.summary;
-  const h = hash({ overviewData, sortField, sortOrder });
+  const h = JSON.stringify({ overviewData, sortField, sortOrder });
   if (lastRenderHash.overview === h) return;
   lastRenderHash.overview = h;
 
@@ -261,22 +276,14 @@ function renderOverview() {
       <div class="section-title">Projects</div>
       <table class="data-table">
         <thead><tr>
-          <th class="${sortField === 'name' ? 'sorted' : ''}" onclick="sortBy('name')">Project ${sortField === 'name' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
-          <th class="${sortField === 'totalCost' ? 'sorted' : ''}" onclick="sortBy('totalCost')">Cost ${sortField === 'totalCost' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
-          <th class="${sortField === 'sessionCount' ? 'sorted' : ''}" onclick="sortBy('sessionCount')">Sessions ${sortField === 'sessionCount' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
-          <th class="${sortField === 'lastActive' ? 'sorted' : ''}" onclick="sortBy('lastActive')">Last Active ${sortField === 'lastActive' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
+          <th class="${thClass('name')}" onclick="sortBy('name')">Project ${sortArrow('name')}</th>
+          <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
+          <th class="${thClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions ${sortArrow('sessionCount')}</th>
+          <th class="${thClass('lastActive')}" onclick="sortBy('lastActive')">Last Active ${sortArrow('lastActive')}</th>
         </tr></thead>
         <tbody>
           ${[...overviewData.projects]
-            .sort((a, b) => {
-              let va = a[sortField],
-                vb = b[sortField];
-              if (typeof va === 'string') va = va.toLowerCase();
-              if (typeof vb === 'string') vb = vb.toLowerCase();
-              if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-              if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-              return 0;
-            })
+            .sort((a, b) => sortCompare(a, b, sortField, sortOrder))
             .map(
               (p) => `
             <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
@@ -312,28 +319,11 @@ function renderProjects() {
     return;
   }
 
-  const h = hash({ projectsData, sortField, sortOrder });
+  const h = JSON.stringify({ projectsData, sortField, sortOrder });
   if (lastRenderHash.projects === h) return;
   lastRenderHash.projects = h;
 
-  const sorted = [...projectsData].sort((a, b) => {
-    let va = a[sortField],
-      vb = b[sortField];
-    if (typeof va === 'string') va = va.toLowerCase();
-    if (typeof vb === 'string') vb = vb.toLowerCase();
-    if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-    if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  function sortArrow(field) {
-    if (sortField !== field) return '';
-    return `<span class="sort-arrow">${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}</span>`;
-  }
-
-  function thClass(field) {
-    return sortField === field ? 'sorted' : '';
-  }
+  const sorted = [...projectsData].sort((a, b) => sortCompare(a, b, sortField, sortOrder));
 
   if (sorted.length === 0) {
     el.innerHTML = `<div class="dashboard-content"><div class="empty-state">
@@ -385,7 +375,7 @@ function renderSessions() {
     return;
   }
 
-  const h = hash(sessionsData);
+  const h = JSON.stringify(sessionsData);
   if (lastRenderHash.sessions === h) return;
   lastRenderHash.sessions = h;
 
@@ -455,7 +445,7 @@ function renderDetail() {
   }
 
   const d = sessionDetailData;
-  const h = hash(d);
+  const h = JSON.stringify(d);
   if (lastRenderHash.detail === h) return;
   lastRenderHash.detail = h;
 
@@ -618,17 +608,16 @@ function renderDailyChart(daily) {
   destroyChart('daily');
 
   const c = getChartColors();
-  const labels = daily.map((d) => shortDate(d.date));
-  const data = daily.map((d) => d.cost);
+  const defaults = chartDefaults();
 
   charts.daily = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels,
+      labels: daily.map((d) => shortDate(d.date)),
       datasets: [
         {
           label: 'Daily Cost',
-          data,
+          data: daily.map((d) => d.cost),
           backgroundColor: c.accentDim,
           borderColor: c.accent,
           borderWidth: 1,
@@ -637,23 +626,21 @@ function renderDailyChart(daily) {
       ],
     },
     options: {
-      ...chartDefaults(),
+      ...defaults,
       interaction: { mode: 'nearest', intersect: true },
       events: [],
       plugins: {
-        ...chartDefaults().plugins,
+        ...defaults.plugins,
         tooltip: {
-          ...chartDefaults().plugins.tooltip,
-          callbacks: {
-            label: (ctx) => `$${ctx.parsed.y.toFixed(2)}`,
-          },
+          ...defaults.plugins.tooltip,
+          callbacks: { label: (ctx) => `$${ctx.parsed.y.toFixed(2)}` },
         },
       },
       scales: {
-        ...chartDefaults().scales,
+        ...defaults.scales,
         y: {
-          ...chartDefaults().scales.y,
-          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
+          ...defaults.scales.y,
+          ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
         },
       },
     },
@@ -667,7 +654,7 @@ function renderModelChart(models) {
 
   const colors = getChartColors();
   const palette = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.chart5, colors.chart6];
-
+  const defaults = chartDefaults();
   const total = models.reduce((s, m) => s + m.cost, 0);
 
   charts.model = new Chart(canvas, {
@@ -684,14 +671,14 @@ function renderModelChart(models) {
       ],
     },
     options: {
-      ...chartDefaults(),
+      ...defaults,
       indexAxis: 'y',
       interaction: { mode: 'nearest', intersect: true },
       events: [],
       plugins: {
-        ...chartDefaults().plugins,
+        ...defaults.plugins,
         tooltip: {
-          ...chartDefaults().plugins.tooltip,
+          ...defaults.plugins.tooltip,
           callbacks: {
             label: (ctx) => {
               const val = ctx.parsed.x;
@@ -702,8 +689,8 @@ function renderModelChart(models) {
         },
       },
       scales: {
-        ...chartDefaults().scales,
-        x: { ...chartDefaults().scales.x, ticks: { ...chartDefaults().scales.x.ticks, callback: (v) => `$${v}` } },
+        ...defaults.scales,
+        x: { ...defaults.scales.x, ticks: { ...defaults.scales.x.ticks, callback: (v) => `$${v}` } },
       },
     },
   });
@@ -715,6 +702,7 @@ function renderCumulativeChart(messages) {
   destroyChart('cumulative');
 
   const c = getChartColors();
+  const defaults = chartDefaults();
 
   charts.cumulative = new Chart(canvas, {
     type: 'line',
@@ -735,16 +723,16 @@ function renderCumulativeChart(messages) {
       ],
     },
     options: {
-      ...chartDefaults(),
+      ...defaults,
       scales: {
-        ...chartDefaults().scales,
+        ...defaults.scales,
         x: {
-          ...chartDefaults().scales.x,
+          ...defaults.scales.x,
           title: { display: true, text: 'Message #', color: c.text, font: { size: 10 } },
         },
         y: {
-          ...chartDefaults().scales.y,
-          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
+          ...defaults.scales.y,
+          ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
         },
       },
     },
@@ -757,12 +745,12 @@ function renderTokenBreakdownChart(messages) {
   destroyChart('tokenBreakdown');
 
   const c = getChartColors();
-  const labels = messages.map((_, i) => i + 1);
+  const defaults = chartDefaults();
 
   charts.tokenBreakdown = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels,
+      labels: messages.map((_, i) => i + 1),
       datasets: [
         { label: 'Input', data: messages.map((m) => m.inputTokens), backgroundColor: c.chart1, borderRadius: 2 },
         { label: 'Output', data: messages.map((m) => m.outputTokens), backgroundColor: c.chart2, borderRadius: 2 },
@@ -781,9 +769,9 @@ function renderTokenBreakdownChart(messages) {
       ],
     },
     options: {
-      ...chartDefaults(),
+      ...defaults,
       plugins: {
-        ...chartDefaults().plugins,
+        ...defaults.plugins,
         legend: {
           display: true,
           position: 'bottom',
@@ -797,12 +785,12 @@ function renderTokenBreakdownChart(messages) {
         },
       },
       scales: {
-        ...chartDefaults().scales,
-        x: { ...chartDefaults().scales.x, stacked: true },
+        ...defaults.scales,
+        x: { ...defaults.scales.x, stacked: true },
         y: {
-          ...chartDefaults().scales.y,
+          ...defaults.scales.y,
           stacked: true,
-          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => formatTokens(v) },
+          ticks: { ...defaults.scales.y.ticks, callback: (v) => formatTokens(v) },
         },
       },
     },
@@ -820,33 +808,15 @@ function destroyAllCharts() {
 
 // #region THEME
 
-function isLightTheme() {
-  return document.body.classList.contains('light');
-}
-
 function loadTheme() {
-  const saved = localStorage.getItem('theme');
-  if (saved === 'light') {
+  if (localStorage.getItem('theme') === 'light') {
     document.body.classList.add('light');
-    document.body.classList.remove('dark-forced');
-  } else if (saved === 'dark') {
-    document.body.classList.remove('light');
-    document.body.classList.add('dark-forced');
   }
 }
 
 function toggleTheme() {
-  const wasLight = isLightTheme();
-  if (wasLight) {
-    document.body.classList.remove('light');
-    document.body.classList.add('dark-forced');
-    localStorage.setItem('theme', 'dark');
-  } else {
-    document.body.classList.add('light');
-    document.body.classList.remove('dark-forced');
-    localStorage.setItem('theme', 'light');
-  }
-  // Re-render charts with new theme colors
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
   lastRenderHash = {};
   renderCurrentView();
 }

@@ -199,7 +199,7 @@ function createDedupeHash(data) {
   return `${mid}:${rid}`;
 }
 
-async function calculateEntryCost(data, pricing) {
+function calculateEntryCost(data, pricing) {
   // Auto mode: use costUSD if present, otherwise calculate
   if (data.costUSD != null) return data.costUSD;
   const model = data.message?.model;
@@ -325,7 +325,7 @@ async function loadProjectData(files, pricing) {
       if (hash && seen.has(hash)) return;
       if (hash) seen.add(hash);
 
-      const cost = await calculateEntryCost(data, pricing);
+      const cost = calculateEntryCost(data, pricing);
       const usage = data.message.usage;
       const model = data.message?.model || 'unknown';
       const ts = data.timestamp;
@@ -393,11 +393,21 @@ async function getOverviewData(days) {
       const inRange = session.messages.filter(m => m.timestamp >= cutoffStr);
       if (inRange.length === 0) continue;
 
-      const sessionCost = inRange.reduce((s, m) => s + m.cost, 0);
-      const sessionInput = inRange.reduce((s, m) => s + m.inputTokens, 0);
-      const sessionOutput = inRange.reduce((s, m) => s + m.outputTokens, 0);
-      const sessionCacheCreation = inRange.reduce((s, m) => s + m.cacheCreationTokens, 0);
-      const sessionCacheRead = inRange.reduce((s, m) => s + m.cacheReadTokens, 0);
+      let sessionCost = 0, sessionInput = 0, sessionOutput = 0, sessionCacheCreation = 0, sessionCacheRead = 0;
+      for (const m of inRange) {
+        sessionCost += m.cost;
+        sessionInput += m.inputTokens;
+        sessionOutput += m.outputTokens;
+        sessionCacheCreation += m.cacheCreationTokens;
+        sessionCacheRead += m.cacheReadTokens;
+        const day = localDateStr(new Date(m.timestamp));
+        dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
+        if (m.model && !m.model.startsWith('<')) {
+          modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
+          projModels.add(m.model);
+        }
+        if (!projLastActive || m.timestamp > projLastActive) projLastActive = m.timestamp;
+      }
 
       totalCost += sessionCost;
       totalInput += sessionInput;
@@ -407,16 +417,6 @@ async function getOverviewData(days) {
       totalSessions++;
       projCost += sessionCost;
       projSessions++;
-
-      for (const m of inRange) {
-        const day = localDateStr(new Date(m.timestamp));
-        dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
-        if (m.model && !m.model.startsWith('<')) {
-          modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
-          projModels.add(m.model);
-        }
-        if (!projLastActive || m.timestamp > projLastActive) projLastActive = m.timestamp;
-      }
     }
 
     if (projSessions > 0) {
@@ -432,19 +432,13 @@ async function getOverviewData(days) {
   }
 
   // Build sorted daily array
-  const dailyArray = Object.entries(dailyCosts)
-    .map(([date, cost]) => ({ date, cost }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  // Fill gaps in daily array
   const filledDaily = [];
-  if (dailyArray.length > 0) {
+  if (Object.keys(dailyCosts).length > 0) {
     const start = new Date(cutoff);
     start.setHours(0, 0, 0, 0);
     for (let d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
       const ds = localDateStr(d);
-      const existing = dailyArray.find(e => e.date === ds);
-      filledDaily.push({ date: ds, cost: existing ? existing.cost : 0 });
+      filledDaily.push({ date: ds, cost: dailyCosts[ds] || 0 });
     }
   }
 
@@ -548,11 +542,11 @@ async function getProjectSessionsData(encodedPath, days) {
       : session.messages;
     if (msgs.length === 0) continue;
 
-    const cost = msgs.reduce((s, m) => s + m.cost, 0);
-    const input = msgs.reduce((s, m) => s + m.inputTokens, 0);
-    const output = msgs.reduce((s, m) => s + m.outputTokens, 0);
-    const cacheCreation = msgs.reduce((s, m) => s + m.cacheCreationTokens, 0);
-    const cacheRead = msgs.reduce((s, m) => s + m.cacheReadTokens, 0);
+    let cost = 0, input = 0, output = 0, cacheCreation = 0, cacheRead = 0;
+    for (const m of msgs) {
+      cost += m.cost; input += m.inputTokens; output += m.outputTokens;
+      cacheCreation += m.cacheCreationTokens; cacheRead += m.cacheReadTokens;
+    }
     const durationMs = session.firstTimestamp && session.lastTimestamp
       ? new Date(session.lastTimestamp) - new Date(session.firstTimestamp)
       : 0;
