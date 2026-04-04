@@ -585,9 +585,15 @@ async function getProjectSessionsData(encodedPath, days) {
     });
   }
 
-  const dates = Object.keys(dailyCosts).sort();
-  const dailyStart = dates.length ? new Date(dates[0] + 'T00:00:00') : now;
-  const dailyEnd = cutoff ? now : (dates.length ? new Date(dates[dates.length - 1] + 'T00:00:00') : now);
+  let dailyStart;
+  if (cutoff) {
+    dailyStart = new Date(cutoff);
+    dailyStart.setHours(0, 0, 0, 0);
+  } else {
+    const dates = Object.keys(dailyCosts).sort();
+    dailyStart = dates.length ? new Date(dates[0] + 'T00:00:00') : now;
+  }
+  const dailyEnd = now;
   const filledDaily = buildFilledDaily(dailyCosts, dailyStart, dailyEnd);
 
   const modelDistribution = buildModelDistribution(modelCosts);

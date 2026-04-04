@@ -400,7 +400,7 @@ function renderSessions() {
     return;
   }
 
-  const h = JSON.stringify(sessionsData) + sortField + sortOrder;
+  const h = JSON.stringify({ sessionsData, sessionsDaily, sessionsModelDistribution, sortField, sortOrder });
   if (lastRenderHash.sessions === h) return;
   lastRenderHash.sessions = h;
 
