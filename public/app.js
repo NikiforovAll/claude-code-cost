@@ -207,7 +207,7 @@ function renderOverview() {
   }
 
   const s = overviewData.summary;
-  const h = hash(overviewData);
+  const h = hash({ overviewData, sortField, sortOrder });
   if (lastRenderHash.overview === h) return;
   lastRenderHash.overview = h;
 
@@ -253,16 +253,23 @@ function renderOverview() {
       </div>
 
       ${overviewData.projects?.length ? `
-      <div class="section-title">Top Projects</div>
+      <div class="section-title">Projects</div>
       <table class="data-table">
         <thead><tr>
-          <th>Project</th>
-          <th>Cost</th>
-          <th>Sessions</th>
-          <th>Last Active</th>
+          <th class="${sortField === 'name' ? 'sorted' : ''}" onclick="sortBy('name')">Project ${sortField === 'name' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
+          <th class="${sortField === 'totalCost' ? 'sorted' : ''}" onclick="sortBy('totalCost')">Cost ${sortField === 'totalCost' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
+          <th class="${sortField === 'sessionCount' ? 'sorted' : ''}" onclick="sortBy('sessionCount')">Sessions ${sortField === 'sessionCount' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
+          <th class="${sortField === 'lastActive' ? 'sorted' : ''}" onclick="sortBy('lastActive')">Last Active ${sortField === 'lastActive' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
         </tr></thead>
         <tbody>
-          ${overviewData.projects.slice(0, 10).map(p => `
+          ${[...overviewData.projects].sort((a, b) => {
+            let va = a[sortField], vb = b[sortField];
+            if (typeof va === 'string') va = va.toLowerCase();
+            if (typeof vb === 'string') vb = vb.toLowerCase();
+            if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+            if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+          }).map(p => `
             <tr onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
@@ -527,7 +534,7 @@ function renderDetail() {
 // #region CHARTS
 
 function getChartColors() {
-  const style = getComputedStyle(document.documentElement);
+  const style = getComputedStyle(document.body);
   return {
     accent: style.getPropertyValue('--accent').trim() || '#e86f33',
     accentDim: style.getPropertyValue('--accent-dim').trim() || 'rgba(232,111,51,0.22)',
@@ -844,8 +851,10 @@ function sortBy(field) {
     sortOrder = 'desc';
   }
   lastRenderHash.projects = null;
+  lastRenderHash.overview = null;
   updateUrl();
-  renderProjects();
+  if (currentView === 'overview') renderOverview();
+  else renderProjects();
 }
 
 async function onRangeChange(val) {
