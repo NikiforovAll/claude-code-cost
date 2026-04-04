@@ -427,7 +427,7 @@ function renderSessions() {
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
-      <div class="charts-row">
+      <div class="charts-row" style="grid-template-columns:3fr 2fr auto">
         <div class="chart-box">
           <div class="chart-title">Daily Cost</div>
           <canvas id="sessionsDailyChart"></canvas>
@@ -435,6 +435,11 @@ function renderSessions() {
         <div class="chart-box">
           <div class="chart-title">Cost by Model</div>
           <canvas id="sessionsModelChart"></canvas>
+        </div>
+        <div class="chart-box" style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:120px">
+          <div class="chart-title">Total Cost</div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent)">${formatCost(sessionsData.reduce((s, x) => s + x.totalCost, 0))}</div>
+          <div style="color:var(--text-tertiary);font-size:12px;margin-top:4px">${sessionsData.length} sessions</div>
         </div>
       </div>
 
