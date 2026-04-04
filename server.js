@@ -229,6 +229,24 @@ function localDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
+function buildFilledDaily(dailyCosts, start, end) {
+  const filled = [];
+  if (Object.keys(dailyCosts).length > 0) {
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = localDateStr(d);
+      filled.push({ date: ds, cost: dailyCosts[ds] || 0 });
+    }
+  }
+  return filled;
+}
+
+function buildModelDistribution(modelCosts) {
+  return Object.entries(modelCosts)
+    .filter(([model, cost]) => cost > 0 && !model.startsWith('<'))
+    .map(([model, cost]) => ({ model, cost }))
+    .sort((a, b) => b.cost - a.cost);
+}
+
 function scanProjectDirs(cutoffDate) {
   const projects = new Map();
   const cutoffMs = cutoffDate ? cutoffDate.getTime() : 0;
@@ -432,16 +450,9 @@ async function getOverviewData(days) {
     }
   }
 
-  // Build sorted daily array
-  const filledDaily = [];
-  if (Object.keys(dailyCosts).length > 0) {
-    const start = new Date(cutoff);
-    start.setHours(0, 0, 0, 0);
-    for (let d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
-      const ds = localDateStr(d);
-      filledDaily.push({ date: ds, cost: dailyCosts[ds] || 0 });
-    }
-  }
+  const dailyStart = new Date(cutoff);
+  dailyStart.setHours(0, 0, 0, 0);
+  const filledDaily = buildFilledDaily(dailyCosts, dailyStart, now);
 
   const todayStr = localDateStr(now);
   const todayCost = dailyCosts[todayStr] || 0;
@@ -449,11 +460,7 @@ async function getOverviewData(days) {
   const totalInputAll = totalInput + totalCacheCreation + totalCacheRead;
   const cacheEfficiency = totalInputAll > 0 ? totalCacheRead / totalInputAll : 0;
 
-  // Model distribution sorted by cost
-  const modelDistribution = Object.entries(modelCosts)
-    .filter(([model, cost]) => cost > 0 && !model.startsWith('<'))
-    .map(([model, cost]) => ({ model, cost }))
-    .sort((a, b) => b.cost - a.cost);
+  const modelDistribution = buildModelDistribution(modelCosts);
 
   const result = {
     summary: {
@@ -536,6 +543,8 @@ async function getProjectSessionsData(encodedPath, days) {
   const sessions = await loadProjectData(proj.files, pricing);
   const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
+  const dailyCosts = {};
+  const modelCosts = {};
 
   for (const [, session] of sessions) {
     const msgs = cutoffStr
@@ -547,6 +556,11 @@ async function getProjectSessionsData(encodedPath, days) {
     for (const m of msgs) {
       cost += m.cost; input += m.inputTokens; output += m.outputTokens;
       cacheCreation += m.cacheCreationTokens; cacheRead += m.cacheReadTokens;
+      const day = localDateStr(new Date(m.timestamp));
+      dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
+      if (m.model && !m.model.startsWith('<')) {
+        modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
+      }
     }
     const durationMs = session.firstTimestamp && session.lastTimestamp
       ? new Date(session.lastTimestamp) - new Date(session.firstTimestamp)
@@ -571,9 +585,17 @@ async function getProjectSessionsData(encodedPath, days) {
     });
   }
 
+  const dates = Object.keys(dailyCosts).sort();
+  const dailyStart = dates.length ? new Date(dates[0] + 'T00:00:00') : now;
+  const dailyEnd = cutoff ? now : (dates.length ? new Date(dates[dates.length - 1] + 'T00:00:00') : now);
+  const filledDaily = buildFilledDaily(dailyCosts, dailyStart, dailyEnd);
+
+  const modelDistribution = buildModelDistribution(modelCosts);
+
   const sorted = result.sort((a, b) => (b.lastTimestamp || '').localeCompare(a.lastTimestamp || ''));
-  setCache(cacheKey, sorted);
-  return sorted;
+  const response = { sessions: sorted, daily: filledDaily, modelDistribution };
+  setCache(cacheKey, response);
+  return response;
 }
 
 async function getSessionDetailData(sessionId) {

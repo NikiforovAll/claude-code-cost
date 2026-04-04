@@ -4,6 +4,8 @@ let currentView = 'overview';
 let overviewData = null;
 let projectsData = null;
 let sessionsData = null;
+let sessionsDaily = null;
+let sessionsModelDistribution = null;
 let sessionDetailData = null;
 let currentProjectPath = null;
 let currentProjectName = null;
@@ -220,7 +222,10 @@ async function fetchProjects() {
 }
 
 async function fetchSessions(encodedPath) {
-  sessionsData = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?range=${dateRange}`, true);
+  const data = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?range=${dateRange}`, true);
+  sessionsData = data.sessions;
+  sessionsDaily = data.daily || [];
+  sessionsModelDistribution = data.modelDistribution || [];
 }
 
 async function fetchSessionDetail(sessionId) {
@@ -422,6 +427,17 @@ function renderSessions() {
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
+      <div class="charts-row">
+        <div class="chart-box">
+          <div class="chart-title">Daily Cost</div>
+          <canvas id="sessionsDailyChart"></canvas>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">Cost by Model</div>
+          <canvas id="sessionsModelChart"></canvas>
+        </div>
+      </div>
+
       <table class="data-table">
         <thead><tr>
           <th class="${thClass('firstPrompt')}" onclick="sortBy('firstPrompt')">Session ${sortArrow('firstPrompt')}</th>
@@ -437,7 +453,7 @@ function renderSessions() {
             .map(
               (s) => `
             <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
-              <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || `${s.sessionId.slice(0, 8)}...`)}</td>
+              <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || s.sessionId)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
               <td>${s.messageCount}</td>
@@ -450,6 +466,11 @@ function renderSessions() {
         </tbody>
       </table>
     </div>`;
+
+  requestAnimationFrame(() => {
+    renderDailyChart(sessionsDaily || [], 'sessionsDailyChart', 'sessionsDaily');
+    renderModelChart(sessionsModelDistribution || [], 'sessionsModelChart', 'sessionsModel');
+  });
 }
 
 // #endregion
@@ -478,7 +499,7 @@ function renderDetail() {
         <span class="sep">/</span>
         <a onclick="navigateToSessions('${esc(d.encodedProjectPath)}', '${esc(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
-        <span class="current">${esc(d.customTitle || d.firstPrompt || `${d.sessionId.slice(0, 12)}...`)}</span>
+        <span class="current">${esc(d.customTitle || d.firstPrompt || d.sessionId)}</span>
       </div>
 
       ${d.firstPrompt ? `<div style="color:var(--text-tertiary);font-size:12px;margin-bottom:16px;font-style:italic">"${esc(d.firstPrompt)}"</div>` : ''}
@@ -622,15 +643,15 @@ function destroyChart(id) {
   }
 }
 
-function renderDailyChart(daily) {
-  const canvas = document.getElementById('dailyChart');
+function renderDailyChart(daily, canvasId = 'dailyChart', chartKey = 'daily') {
+  const canvas = document.getElementById(canvasId);
   if (!canvas || !daily?.length) return;
-  destroyChart('daily');
+  destroyChart(chartKey);
 
   const c = getChartColors();
   const defaults = chartDefaults();
 
-  charts.daily = new Chart(canvas, {
+  charts[chartKey] = new Chart(canvas, {
     type: 'bar',
     data: {
       labels: daily.map((d) => shortDate(d.date)),
@@ -667,17 +688,17 @@ function renderDailyChart(daily) {
   });
 }
 
-function renderModelChart(models) {
-  const canvas = document.getElementById('modelChart');
+function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
+  const canvas = document.getElementById(canvasId);
   if (!canvas || !models?.length) return;
-  destroyChart('model');
+  destroyChart(chartKey);
 
   const colors = getChartColors();
   const palette = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.chart5, colors.chart6];
   const defaults = chartDefaults();
   const total = models.reduce((s, m) => s + m.cost, 0);
 
-  charts.model = new Chart(canvas, {
+  charts[chartKey] = new Chart(canvas, {
     type: 'bar',
     data: {
       labels: models.map((m) => shortModel(m.model)),
@@ -967,6 +988,8 @@ async function loadAndRender(view) {
       case 'sessions':
         if (currentProjectPath) {
           sessionsData = null;
+          sessionsDaily = null;
+          sessionsModelDistribution = null;
           lastRenderHash.sessions = null;
           renderSessions();
           await fetchSessions(currentProjectPath);
