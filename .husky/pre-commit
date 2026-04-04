@@ -1,0 +1,1 @@
+npx @biomejs/biome check --error-on-warnings public/app.js public/style.css
