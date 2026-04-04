@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js --open",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -17,6 +17,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "open": "^11.0.0"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0"
   },
   "license": "MIT"
 }
