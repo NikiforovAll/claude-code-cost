@@ -204,8 +204,12 @@ body {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* #endregion */
@@ -308,7 +312,7 @@ body {
 }
 
 .chart-box canvas {
-  width: 100% !important;
+  width: 100%;
   max-height: 280px;
 }
 
@@ -395,6 +399,12 @@ body {
 .data-table tbody tr:hover {
   background: var(--bg-hover);
   cursor: pointer;
+}
+
+.data-table tbody tr.kb-selected {
+  background: var(--accent-dim);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .data-table .cost-cell {
@@ -640,6 +650,63 @@ body {
   color: var(--text-primary);
 }
 
+.modal-section p {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.modal-section p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.shortcut-section {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shortcut-table {
+  width: 100%;
+  font-size: 12px;
+}
+
+.shortcut-table td {
+  padding: 3px 0;
+  color: var(--text-secondary);
+}
+
+.shortcut-table td:first-child {
+  width: 120px;
+}
+
+.shortcut-table td:last-child {
+  color: var(--text-primary);
+}
+
+.shortcut-table kbd {
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--border);
+}
+
 /* #endregion */
 
 /* #region TOAST */
@@ -662,8 +729,14 @@ body {
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* #endregion */

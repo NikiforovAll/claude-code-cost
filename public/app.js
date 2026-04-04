@@ -11,7 +11,7 @@ let currentSessionId = null;
 let sortField = 'totalCost';
 let sortOrder = 'desc';
 let dateRange = 7;
-let charts = {};
+const charts = {};
 let lastRenderHash = {};
 let navCounter = 0;
 
@@ -28,20 +28,20 @@ function esc(str) {
 function formatCost(usd) {
   if (usd == null || usd === 0) return '$0.00';
   if (usd < 0.01) return '<$0.01';
-  if (usd >= 100) return '$' + usd.toFixed(0);
-  return '$' + usd.toFixed(2);
+  if (usd >= 100) return `$${usd.toFixed(0)}`;
+  return `$${usd.toFixed(2)}`;
 }
 
 function formatTokens(count) {
   if (!count) return '0';
-  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';
-  if (count >= 1_000) return (count / 1_000).toFixed(1) + 'K';
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
   return count.toString();
 }
 
 function formatDuration(minutes) {
   if (!minutes || minutes < 1) return '<1m';
-  if (minutes < 60) return minutes + 'm';
+  if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
@@ -52,16 +52,16 @@ function timeAgo(ts) {
   const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
+  if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + 'h ago';
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return days + 'd ago';
+  if (days < 30) return `${days}d ago`;
   return new Date(ts).toLocaleDateString();
 }
 
 function shortDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
+  const d = new Date(`${dateStr}T00:00:00`);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -95,7 +95,7 @@ function getUrlState() {
 
 function loadDateRange() {
   const v = localStorage.getItem('cc-cost:range');
-  return v ? parseInt(v) || 7 : 7;
+  return v ? parseInt(v, 10) || 7 : 7;
 }
 
 function saveDateRange(val) {
@@ -111,7 +111,7 @@ function updateUrl() {
   if (sortField !== 'totalCost') p.set('sort', sortField);
   if (sortOrder !== 'desc') p.set('order', sortOrder);
   const qs = p.toString();
-  history.replaceState(null, '', qs ? '?' + qs : '/');
+  history.replaceState(null, '', qs ? `?${qs}` : '/');
 }
 
 // #endregion
@@ -125,19 +125,23 @@ let forceRefresh = false;
 function getCached(key) {
   if (forceRefresh) return null;
   try {
-    const raw = localStorage.getItem('cc-cost:' + key);
+    const raw = localStorage.getItem(`cc-cost:${key}`);
     if (!raw) return null;
     const { data, ts, v } = JSON.parse(raw);
     if (v !== CACHE_VERSION || Date.now() - ts > BROWSER_CACHE_TTL) return null;
     return data;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function setLocalCache(key, data) {
   try {
     pruneLocalCache();
-    localStorage.setItem('cc-cost:' + key, JSON.stringify({ data, ts: Date.now(), v: CACHE_VERSION }));
-  } catch { /* storage full — ignore */ }
+    localStorage.setItem(`cc-cost:${key}`, JSON.stringify({ data, ts: Date.now(), v: CACHE_VERSION }));
+  } catch {
+    /* storage full — ignore */
+  }
 }
 
 function pruneLocalCache() {
@@ -149,7 +153,9 @@ function pruneLocalCache() {
     try {
       const { ts } = JSON.parse(localStorage.getItem(k));
       entries.push({ k, ts });
-    } catch { entries.push({ k, ts: 0 }); }
+    } catch {
+      entries.push({ k, ts: 0 });
+    }
   }
   if (entries.length <= MAX_ENTRIES) return;
   entries.sort((a, b) => a.ts - b.ts);
@@ -163,7 +169,7 @@ function clearLocalCache() {
     const k = localStorage.key(i);
     if (k.startsWith('cc-cost:')) keys.push(k);
   }
-  keys.forEach(k => localStorage.removeItem(k));
+  keys.forEach((k) => localStorage.removeItem(k));
 }
 
 async function fetchJSON(url, skipCache) {
@@ -252,7 +258,9 @@ function renderOverview() {
         </div>
       </div>
 
-      ${overviewData.projects?.length ? `
+      ${
+        overviewData.projects?.length
+          ? `
       <div class="section-title">Projects</div>
       <table class="data-table">
         <thead><tr>
@@ -262,22 +270,30 @@ function renderOverview() {
           <th class="${sortField === 'lastActive' ? 'sorted' : ''}" onclick="sortBy('lastActive')">Last Active ${sortField === 'lastActive' ? (sortOrder === 'asc' ? '\u25B2' : '\u25BC') : ''}</th>
         </tr></thead>
         <tbody>
-          ${[...overviewData.projects].sort((a, b) => {
-            let va = a[sortField], vb = b[sortField];
-            if (typeof va === 'string') va = va.toLowerCase();
-            if (typeof vb === 'string') vb = vb.toLowerCase();
-            if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-            if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
-          }).map(p => `
-            <tr onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
+          ${[...overviewData.projects]
+            .sort((a, b) => {
+              let va = a[sortField],
+                vb = b[sortField];
+              if (typeof va === 'string') va = va.toLowerCase();
+              if (typeof vb === 'string') vb = vb.toLowerCase();
+              if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+              if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+              return 0;
+            })
+            .map(
+              (p) => `
+            <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
               <td>${p.sessionCount}</td>
               <td class="muted">${timeAgo(p.lastActive)}</td>
-            </tr>`).join('')}
+            </tr>`,
+            )
+            .join('')}
         </tbody>
-      </table>` : ''}
+      </table>`
+          : ''
+      }
     </div>`;
 
   // Render charts after DOM is ready
@@ -304,7 +320,8 @@ function renderProjects() {
   lastRenderHash.projects = h;
 
   const sorted = [...projectsData].sort((a, b) => {
-    let va = a[sortField], vb = b[sortField];
+    let va = a[sortField],
+      vb = b[sortField];
     if (typeof va === 'string') va = va.toLowerCase();
     if (typeof vb === 'string') vb = vb.toLowerCase();
     if (va < vb) return sortOrder === 'asc' ? -1 : 1;
@@ -342,14 +359,18 @@ function renderProjects() {
           <th>Model</th>
         </tr></thead>
         <tbody>
-          ${sorted.map(p => `
-            <tr onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
+          ${sorted
+            .map(
+              (p) => `
+            <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
               <td>${p.sessionCount}</td>
               <td class="muted">${timeAgo(p.lastActive)}</td>
               <td><span class="model-badge">${esc(shortModel(p.primaryModel))}</span></td>
-            </tr>`).join('')}
+            </tr>`,
+            )
+            .join('')}
         </tbody>
       </table>
     </div>`;
@@ -405,16 +426,20 @@ function renderSessions() {
           <th>Last Active</th>
         </tr></thead>
         <tbody>
-          ${sessionsData.map(s => `
-            <tr onclick="navigateToDetail('${esc(s.sessionId)}')">
-              <td class="truncate" title="${esc(s.firstPrompt || s.sessionId)}">${esc(s.firstPrompt || s.sessionId.slice(0, 8) + '...')}</td>
+          ${sessionsData
+            .map(
+              (s) => `
+            <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
+              <td class="truncate" title="${esc(s.firstPrompt || s.sessionId)}">${esc(s.firstPrompt || `${s.sessionId.slice(0, 8)}...`)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
               <td>${s.messageCount}</td>
               <td class="muted">${formatDuration(s.durationMinutes)}</td>
               <td><span class="model-badge">${esc(shortModel(s.primaryModel))}</span></td>
               <td class="muted">${timeAgo(s.lastTimestamp)}</td>
-            </tr>`).join('')}
+            </tr>`,
+            )
+            .join('')}
         </tbody>
       </table>
     </div>`;
@@ -478,7 +503,7 @@ function renderDetail() {
         </div>
         <div class="detail-stat">
           <div class="detail-label">Models</div>
-          <div class="detail-value">${d.models.map(m => shortModel(m)).join(', ')}</div>
+          <div class="detail-value">${d.models.map((m) => shortModel(m)).join(', ')}</div>
         </div>
       </div>
 
@@ -507,7 +532,10 @@ function renderDetail() {
           <th>Cumulative</th>
         </tr></thead>
         <tbody>
-          ${[...d.messages].reverse().map((m) => `
+          ${[...d.messages]
+            .reverse()
+            .map(
+              (m) => `
             <tr>
               <td class="muted">${m.index}</td>
               <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
@@ -518,7 +546,9 @@ function renderDetail() {
               <td>${formatTokens(m.cacheReadTokens)}</td>
               <td class="cost-cell">${formatCost(m.cost)}</td>
               <td class="cumulative">${formatCost(m.cumulativeCost)}</td>
-            </tr>`).join('')}
+            </tr>`,
+            )
+            .join('')}
         </tbody>
       </table>
     </div>`;
@@ -591,21 +621,23 @@ function renderDailyChart(daily) {
   destroyChart('daily');
 
   const c = getChartColors();
-  const labels = daily.map(d => shortDate(d.date));
-  const data = daily.map(d => d.cost);
+  const labels = daily.map((d) => shortDate(d.date));
+  const data = daily.map((d) => d.cost);
 
   charts.daily = new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
-      datasets: [{
-        label: 'Daily Cost',
-        data,
-        backgroundColor: c.accentDim,
-        borderColor: c.accent,
-        borderWidth: 1,
-        borderRadius: 3,
-      }],
+      datasets: [
+        {
+          label: 'Daily Cost',
+          data,
+          backgroundColor: c.accentDim,
+          borderColor: c.accent,
+          borderWidth: 1,
+          borderRadius: 3,
+        },
+      ],
     },
     options: {
       ...chartDefaults(),
@@ -622,7 +654,10 @@ function renderDailyChart(daily) {
       },
       scales: {
         ...chartDefaults().scales,
-        y: { ...chartDefaults().scales.y, ticks: { ...chartDefaults().scales.y.ticks, callback: v => '$' + v.toFixed(2) } },
+        y: {
+          ...chartDefaults().scales.y,
+          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
+        },
       },
     },
   });
@@ -641,13 +676,15 @@ function renderModelChart(models) {
   charts.model = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: models.map(m => shortModel(m.model)),
-      datasets: [{
-        data: models.map(m => m.cost),
-        backgroundColor: models.map((_, i) => palette[i % palette.length]),
-        borderWidth: 0,
-        borderRadius: 3,
-      }],
+      labels: models.map((m) => shortModel(m.model)),
+      datasets: [
+        {
+          data: models.map((m) => m.cost),
+          backgroundColor: models.map((_, i) => palette[i % palette.length]),
+          borderWidth: 0,
+          borderRadius: 3,
+        },
+      ],
     },
     options: {
       ...chartDefaults(),
@@ -669,7 +706,7 @@ function renderModelChart(models) {
       },
       scales: {
         ...chartDefaults().scales,
-        x: { ...chartDefaults().scales.x, ticks: { ...chartDefaults().scales.x.ticks, callback: v => '$' + v } },
+        x: { ...chartDefaults().scales.x, ticks: { ...chartDefaults().scales.x.ticks, callback: (v) => `$${v}` } },
       },
     },
   });
@@ -686,24 +723,32 @@ function renderCumulativeChart(messages) {
     type: 'line',
     data: {
       labels: messages.map((_, i) => i + 1),
-      datasets: [{
-        label: 'Cumulative Cost',
-        data: messages.map(m => m.cumulativeCost),
-        borderColor: c.accent,
-        backgroundColor: c.accentDim,
-        fill: true,
-        borderWidth: 2,
-        pointRadius: messages.length > 50 ? 0 : 3,
-        pointBackgroundColor: c.accent,
-        tension: 0.2,
-      }],
+      datasets: [
+        {
+          label: 'Cumulative Cost',
+          data: messages.map((m) => m.cumulativeCost),
+          borderColor: c.accent,
+          backgroundColor: c.accentDim,
+          fill: true,
+          borderWidth: 2,
+          pointRadius: messages.length > 50 ? 0 : 3,
+          pointBackgroundColor: c.accent,
+          tension: 0.2,
+        },
+      ],
     },
     options: {
       ...chartDefaults(),
       scales: {
         ...chartDefaults().scales,
-        x: { ...chartDefaults().scales.x, title: { display: true, text: 'Message #', color: c.text, font: { size: 10 } } },
-        y: { ...chartDefaults().scales.y, ticks: { ...chartDefaults().scales.y.ticks, callback: v => '$' + v.toFixed(2) } },
+        x: {
+          ...chartDefaults().scales.x,
+          title: { display: true, text: 'Message #', color: c.text, font: { size: 10 } },
+        },
+        y: {
+          ...chartDefaults().scales.y,
+          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
+        },
       },
     },
   });
@@ -722,10 +767,20 @@ function renderTokenBreakdownChart(messages) {
     data: {
       labels,
       datasets: [
-        { label: 'Input', data: messages.map(m => m.inputTokens), backgroundColor: c.chart1, borderRadius: 2 },
-        { label: 'Output', data: messages.map(m => m.outputTokens), backgroundColor: c.chart2, borderRadius: 2 },
-        { label: 'Cache Create', data: messages.map(m => m.cacheCreationTokens), backgroundColor: c.chart3, borderRadius: 2 },
-        { label: 'Cache Read', data: messages.map(m => m.cacheReadTokens), backgroundColor: c.chart4, borderRadius: 2 },
+        { label: 'Input', data: messages.map((m) => m.inputTokens), backgroundColor: c.chart1, borderRadius: 2 },
+        { label: 'Output', data: messages.map((m) => m.outputTokens), backgroundColor: c.chart2, borderRadius: 2 },
+        {
+          label: 'Cache Create',
+          data: messages.map((m) => m.cacheCreationTokens),
+          backgroundColor: c.chart3,
+          borderRadius: 2,
+        },
+        {
+          label: 'Cache Read',
+          data: messages.map((m) => m.cacheReadTokens),
+          backgroundColor: c.chart4,
+          borderRadius: 2,
+        },
       ],
     },
     options: {
@@ -747,12 +802,17 @@ function renderTokenBreakdownChart(messages) {
       scales: {
         ...chartDefaults().scales,
         x: { ...chartDefaults().scales.x, stacked: true },
-        y: { ...chartDefaults().scales.y, stacked: true, ticks: { ...chartDefaults().scales.y.ticks, callback: v => formatTokens(v) } },
+        y: {
+          ...chartDefaults().scales.y,
+          stacked: true,
+          ticks: { ...chartDefaults().scales.y.ticks, callback: (v) => formatTokens(v) },
+        },
       },
     },
   });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: called from theme toggle
 function destroyAllCharts() {
   for (const id of Object.keys(charts)) {
     destroyChart(id);
@@ -799,13 +859,13 @@ function toggleTheme() {
 // #region ROUTER
 
 function setActiveNav(view) {
-  document.querySelectorAll('.topbar-nav-btn').forEach(btn => {
+  document.querySelectorAll('.topbar-nav-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
 }
 
 function showView(viewId) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById(viewId);
   if (el) el.classList.add('active');
 }
@@ -826,23 +886,26 @@ async function navigate(view, params) {
     currentSessionId = null;
   }
 
-  const navView = (view === 'sessions' || view === 'detail') ? 'projects' : view;
+  const navView = view === 'sessions' || view === 'detail' ? 'projects' : view;
   setActiveNav(navView);
   updateUrl();
   await loadAndRender(view);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToSessions(encodedPath, name) {
   currentProjectPath = encodedPath;
   currentProjectName = name;
   await navigate('sessions', { project: encodedPath, projectName: name });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToDetail(sessionId) {
   currentSessionId = sessionId;
   await navigate('detail', { session: sessionId });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 function sortBy(field) {
   if (sortField === field) {
     sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
@@ -857,8 +920,9 @@ function sortBy(field) {
   else renderProjects();
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onchange
 async function onRangeChange(val) {
-  dateRange = parseInt(val) || 7;
+  dateRange = parseInt(val, 10) || 7;
   saveDateRange(dateRange);
   lastRenderHash = {};
   updateUrl();
@@ -889,9 +953,9 @@ async function refreshData() {
 async function loadAndRender(view) {
   const myNav = ++navCounter;
   ensureViewElements();
-  showView(view + '-view');
+  showView(`${view}-view`);
 
-  const viewEl = document.getElementById(view + '-view');
+  const viewEl = document.getElementById(`${view}-view`);
   if (viewEl) {
     const hasContent = viewEl.querySelector('.dashboard-content');
     if (!hasContent) {
@@ -934,7 +998,7 @@ async function loadAndRender(view) {
     if (myNav !== navCounter) return;
     console.error(`Failed to load ${view}:`, err);
     showToast(`Error: ${err.message}`);
-    const viewEl = document.getElementById(view + '-view');
+    const viewEl = document.getElementById(`${view}-view`);
     if (viewEl) viewEl.innerHTML = `<div class="loading-state"><span>Failed to load data: ${err.message}</span></div>`;
   }
 }
@@ -948,9 +1012,9 @@ function ensureViewElements() {
   if (!app) return;
   const views = ['overview', 'projects', 'sessions', 'detail'];
   for (const v of views) {
-    if (!document.getElementById(v + '-view')) {
+    if (!document.getElementById(`${v}-view`)) {
       const div = document.createElement('div');
-      div.id = v + '-view';
+      div.id = `${v}-view`;
       div.className = 'view';
       app.appendChild(div);
     }
@@ -964,10 +1028,128 @@ function ensureViewElements() {
 
 // #region MODAL
 
-function toggleInfoModal() {
-  const modal = document.getElementById('infoModal');
-  modal.classList.toggle('visible');
+function toggleHelpModal() {
+  document.getElementById('helpModal').classList.toggle('visible');
 }
+
+// #endregion
+
+// #region KEYBOARD_SHORTCUTS
+
+let selectedRowIdx = -1;
+
+function getVisibleRows() {
+  const viewEl = document.getElementById(`${currentView}-view`);
+  if (!viewEl) return [];
+  return Array.from(viewEl.querySelectorAll('tbody tr[data-clickable]'));
+}
+
+function selectRow(idx) {
+  const rows = getVisibleRows();
+  rows.forEach((r) => r.classList.remove('kb-selected'));
+  if (idx >= 0 && idx < rows.length) {
+    selectedRowIdx = idx;
+    rows[idx].classList.add('kb-selected');
+    rows[idx].scrollIntoView({ block: 'nearest' });
+  } else {
+    selectedRowIdx = -1;
+  }
+}
+
+function activateSelectedRow() {
+  const rows = getVisibleRows();
+  if (selectedRowIdx >= 0 && selectedRowIdx < rows.length) {
+    rows[selectedRowIdx].click();
+  }
+}
+
+function goBack() {
+  if (currentView === 'detail') {
+    navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+  } else if (currentView === 'sessions') {
+    navigate('projects');
+  } else if (currentView === 'projects') {
+    navigate('overview');
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  const anyModal = document.querySelector('.modal-overlay.visible');
+  if (anyModal) {
+    if (e.key === 'Escape') {
+      anyModal.classList.remove('visible');
+      e.preventDefault();
+    }
+    return;
+  }
+
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+  if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+    e.preventDefault();
+    toggleHelpModal();
+    return;
+  }
+
+  if (e.key === '1') {
+    e.preventDefault();
+    navigate('overview');
+    selectedRowIdx = -1;
+    return;
+  }
+  if (e.key === '2') {
+    e.preventDefault();
+    navigate('projects');
+    selectedRowIdx = -1;
+    return;
+  }
+
+  if (e.key === 'r') {
+    e.preventDefault();
+    refreshData();
+    return;
+  }
+  if (e.key === 't') {
+    e.preventDefault();
+    toggleTheme();
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    goBack();
+    selectedRowIdx = -1;
+    return;
+  }
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    goBack();
+    selectedRowIdx = -1;
+    return;
+  }
+
+  // Table navigation
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const rows = getVisibleRows();
+    if (rows.length) selectRow(Math.min(selectedRowIdx + 1, rows.length - 1));
+    return;
+  }
+  if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const rows = getVisibleRows();
+    if (rows.length) selectRow(Math.max(selectedRowIdx - 1, 0));
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    activateSelectedRow();
+    selectedRowIdx = -1;
+    return;
+  }
+});
 
 // #endregion
 
@@ -993,7 +1175,9 @@ function dismissToast(el) {
 // #region HUB_INTEGRATION
 
 (async function initHub() {
-  const cfg = await fetch('/hub-config').then(r => r.json()).catch(() => ({}));
+  const cfg = await fetch('/hub-config')
+    .then((r) => r.json())
+    .catch(() => ({}));
   if (!cfg.enabled) return;
 
   window.__HUB__ = cfg;

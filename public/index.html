@@ -48,7 +48,7 @@
     <button class="topbar-btn" id="themeBtn" title="Toggle theme" onclick="toggleTheme()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="themeIcon"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
-    <button class="topbar-btn" id="infoBtn" title="About" onclick="toggleInfoModal()">
+    <button class="topbar-btn" id="infoBtn" title="Help & About (?)" onclick="toggleHelpModal()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
     </button>
     <a class="topbar-btn" href="https://github.com/NikiforovAll/claude-code-cost" target="_blank" rel="noopener" title="GitHub">
@@ -56,17 +56,47 @@
     </a>
   </div>
 
-  <div class="modal-overlay" id="infoModal" onclick="if(event.target===this)toggleInfoModal()">
+  <div class="modal-overlay" id="helpModal" onclick="if(event.target===this)toggleHelpModal()">
     <div class="modal-box">
       <div class="modal-header">
-        <div class="modal-title">About Cost Dashboard</div>
+        <div class="modal-title">Cost Dashboard</div>
       </div>
       <div class="modal-body">
-        <p>All costs shown are <strong>estimates</strong> based on token counts and publicly available model pricing from <a href="https://github.com/BerriAI/litellm" target="_blank" rel="noopener">LiteLLM</a>. They may differ from your actual Anthropic billing.</p>
-        <p>Pricing is fetched live and cached for 6 hours. If the fetch fails, a bundled offline snapshot is used as fallback.</p>
-        <p>This dashboard is read-only -- it does not modify any files.</p>
+        <div class="modal-section">
+          <p>All costs shown are <strong>estimates</strong> based on token counts and publicly available model pricing from <a href="https://github.com/BerriAI/litellm" target="_blank" rel="noopener">LiteLLM</a>. They may differ from your actual Anthropic billing.</p>
+          <p>Pricing is fetched live and cached for 6 hours. If the fetch fails, a bundled offline snapshot is used as fallback. This dashboard is read-only.</p>
+        </div>
+        <hr class="modal-divider">
+        <h4 class="shortcut-section">Keyboard Shortcuts</h4>
+        <div class="shortcut-grid">
+          <div>
+            <h4 class="shortcut-section">Navigation</h4>
+            <table class="shortcut-table">
+              <tr><td><kbd>1</kbd></td><td>Overview</td></tr>
+              <tr><td><kbd>2</kbd></td><td>Projects</td></tr>
+              <tr><td><kbd>Backspace</kbd></td><td>Go back</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Close modal / go back</td></tr>
+            </table>
+          </div>
+          <div>
+            <h4 class="shortcut-section">Table</h4>
+            <table class="shortcut-table">
+              <tr><td><kbd>j</kbd> / <kbd>&darr;</kbd></td><td>Next row</td></tr>
+              <tr><td><kbd>k</kbd> / <kbd>&uarr;</kbd></td><td>Previous row</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Open selected row</td></tr>
+            </table>
+          </div>
+          <div>
+            <h4 class="shortcut-section">Actions</h4>
+            <table class="shortcut-table">
+              <tr><td><kbd>r</kbd></td><td>Refresh data</td></tr>
+              <tr><td><kbd>t</kbd></td><td>Toggle theme</td></tr>
+              <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+            </table>
+          </div>
+        </div>
       </div>
-      <button class="modal-close" onclick="toggleInfoModal()">Close</button>
+      <button class="modal-close" onclick="toggleHelpModal()">Close</button>
     </div>
   </div>
 
