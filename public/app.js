@@ -13,8 +13,12 @@ let currentSessionId = null;
 let parentView = 'projects';
 let lastSelectedProject = null;
 let lastSelectedSession = null;
-let sortField = 'totalCost';
-let sortOrder = 'desc';
+const DEFAULT_SORT = {
+  overview: { field: 'totalCost', order: 'desc' },
+  projects: { field: 'lastActive', order: 'desc' },
+  sessions: { field: 'lastTimestamp', order: 'desc' },
+};
+const viewSort = structuredClone(DEFAULT_SORT);
 let dateRange = 3;
 const charts = {};
 let lastRenderHash = {};
@@ -88,13 +92,19 @@ function sortCompare(a, b, field, order) {
   return 0;
 }
 
+function currentSort() {
+  return viewSort[currentView];
+}
+
 function sortArrow(field) {
-  if (sortField !== field) return '';
-  return `<span class="sort-arrow">${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}</span>`;
+  const s = currentSort();
+  if (!s || s.field !== field) return '';
+  return `<span class="sort-arrow">${s.order === 'asc' ? '\u25B2' : '\u25BC'}</span>`;
 }
 
 function thClass(field) {
-  return sortField === field ? 'sorted' : '';
+  const s = currentSort();
+  return s && s.field === field ? 'sorted' : '';
 }
 
 function parentBreadcrumb() {
@@ -148,20 +158,23 @@ function saveDateRange(val) {
 }
 
 function loadSort() {
-  const raw = localStorage.getItem('cc-cost:sort');
-  if (raw) {
-    try {
-      const { field, order } = JSON.parse(raw);
-      if (field) sortField = field;
-      if (order) sortOrder = order;
-    } catch {
-      /* ignore */
+  for (const view of Object.keys(DEFAULT_SORT)) {
+    const raw = localStorage.getItem(`cc-cost:sort:${view}`);
+    if (raw) {
+      try {
+        const { field, order } = JSON.parse(raw);
+        if (field) viewSort[view].field = field;
+        if (order) viewSort[view].order = order;
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
 
 function saveSort() {
-  localStorage.setItem('cc-cost:sort', JSON.stringify({ field: sortField, order: sortOrder }));
+  const s = currentSort();
+  localStorage.setItem(`cc-cost:sort:${currentView}`, JSON.stringify(s));
 }
 
 function updateUrl() {
@@ -225,12 +238,14 @@ function pruneLocalCache() {
   for (let i = 0; i < toRemove; i++) localStorage.removeItem(entries[i].k);
 }
 
-const PREF_KEYS = new Set(['cc-cost:sort', 'cc-cost:range']);
+function isPrefKey(k) {
+  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range';
+}
 function clearLocalCache() {
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k.startsWith('cc-cost:') && !PREF_KEYS.has(k)) keys.push(k);
+    if (k.startsWith('cc-cost:') && !isPrefKey(k)) keys.push(k);
   }
   keys.forEach((k) => localStorage.removeItem(k));
 }
@@ -284,7 +299,7 @@ function renderOverview() {
   }
 
   const s = overviewData.summary;
-  const h = JSON.stringify({ overviewData, sortField, sortOrder });
+  const h = JSON.stringify({ overviewData, sort: viewSort.overview });
   if (lastRenderHash.overview === h) return;
   lastRenderHash.overview = h;
 
@@ -342,7 +357,7 @@ function renderOverview() {
         </tr></thead>
         <tbody>
           ${[...overviewData.projects]
-            .sort((a, b) => sortCompare(a, b, sortField, sortOrder))
+            .sort((a, b) => sortCompare(a, b, viewSort.overview.field, viewSort.overview.order))
             .map(
               (p) => `
             <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
@@ -378,11 +393,11 @@ function renderProjects() {
     return;
   }
 
-  const h = JSON.stringify({ projectsData, sortField, sortOrder });
+  const h = JSON.stringify({ projectsData, sort: viewSort.projects });
   if (lastRenderHash.projects === h) return;
   lastRenderHash.projects = h;
 
-  const sorted = [...projectsData].sort((a, b) => sortCompare(a, b, sortField, sortOrder));
+  const sorted = [...projectsData].sort((a, b) => sortCompare(a, b, viewSort.projects.field, viewSort.projects.order));
 
   if (sorted.length === 0) {
     el.innerHTML = `<div class="dashboard-content"><div class="empty-state">
@@ -434,7 +449,7 @@ function renderSessions() {
     return;
   }
 
-  const h = JSON.stringify({ sessionsData, sessionsDaily, sessionsModelDistribution, sortField, sortOrder });
+  const h = JSON.stringify({ sessionsData, sessionsDaily, sessionsModelDistribution, sort: viewSort.sessions });
   if (lastRenderHash.sessions === h) return;
   lastRenderHash.sessions = h;
 
@@ -485,7 +500,7 @@ function renderSessions() {
         </tr></thead>
         <tbody>
           ${[...sessionsData]
-            .sort((a, b) => sortCompare(a, b, sortField, sortOrder))
+            .sort((a, b) => sortCompare(a, b, viewSort.sessions.field, viewSort.sessions.order))
             .map(
               (s) => `
             <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
@@ -618,9 +633,10 @@ function buildMessageRowsWithSubagents(d) {
 
 function buildMessageRow(m) {
   const sa = m._subagent;
+  const toolTags = !sa && m.tools ? m.tools.map((t) => `<span class="tool-tag">${esc(t)}</span>`).join(' ') : '';
   const modelCol = sa
     ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.agentType)}</span>`
-    : `<span class="model-badge">${esc(shortModel(m.model))}</span>`;
+    : `<span class="model-badge">${esc(shortModel(m.model))}</span>${toolTags ? ` ${toolTags}` : ''}`;
   return `<tr>
     <td class="muted">${m.index}</td>
     <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
@@ -927,7 +943,6 @@ function showView(viewId) {
 
 async function navigate(view, params) {
   currentView = view;
-  loadSort();
   if (params?.project) currentProjectPath = params.project;
   if (params?.projectName) currentProjectName = params.projectName;
   if (params?.session) currentSessionId = params.session;
@@ -969,11 +984,12 @@ async function navigateToDetail(sessionId) {
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 function sortBy(field) {
-  if (sortField === field) {
-    sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+  const s = currentSort();
+  if (s.field === field) {
+    s.order = s.order === 'desc' ? 'asc' : 'desc';
   } else {
-    sortField = field;
-    sortOrder = 'desc';
+    s.field = field;
+    s.order = 'desc';
   }
   lastRenderHash[currentView] = null;
   saveSort();
@@ -999,6 +1015,7 @@ async function refreshData() {
   btn.classList.add('loading');
   btn.disabled = true;
   const t = showToast(`Recalculating for ${dateRange} days...`, true);
+  const minWait = new Promise((r) => setTimeout(r, 250));
   try {
     await fetch('/api/refresh', { method: 'POST' });
     clearLocalCache();
@@ -1006,6 +1023,8 @@ async function refreshData() {
     lastRenderHash = {};
     await loadAndRender(currentView);
     forceRefresh = false;
+    await minWait;
+    showToast('Data refreshed', false, 'success');
   } finally {
     dismissToast(t);
     btn.classList.remove('loading');
@@ -1015,6 +1034,7 @@ async function refreshData() {
 
 async function loadAndRender(view) {
   const myNav = ++navCounter;
+  const prevSelectedIdx = selectedRowIdx;
   ensureViewElements();
   showView(`${view}-view`);
 
@@ -1040,11 +1060,10 @@ async function loadAndRender(view) {
         break;
       case 'sessions':
         if (currentProjectPath) {
-          sessionsData = null;
-          sessionsDaily = null;
-          sessionsModelDistribution = null;
-          lastRenderHash.sessions = null;
-          renderSessions();
+          if (!sessionsData) {
+            lastRenderHash.sessions = null;
+            renderSessions();
+          }
           await fetchSessions(currentProjectPath);
           if (myNav !== navCounter) return;
           renderSessions();
@@ -1052,15 +1071,17 @@ async function loadAndRender(view) {
         break;
       case 'detail':
         if (currentSessionId) {
-          sessionDetailData = null;
-          lastRenderHash.detail = null;
-          renderDetail();
+          if (!sessionDetailData) {
+            lastRenderHash.detail = null;
+            renderDetail();
+          }
           await fetchSessionDetail(currentSessionId);
           if (myNav !== navCounter) return;
           renderDetail();
         }
         break;
     }
+    if (prevSelectedIdx >= 0) selectRow(prevSelectedIdx);
   } catch (err) {
     if (myNav !== navCounter) return;
     console.error(`Failed to load ${view}:`, err);
@@ -1227,11 +1248,11 @@ document.addEventListener('keydown', (e) => {
 
 // #region TOAST
 
-function showToast(msg, persistent) {
+function showToast(msg, persistent, type) {
   const container = document.getElementById('toast');
   if (!container) return;
   const el = document.createElement('div');
-  el.className = 'toast';
+  el.className = type ? `toast toast-${type}` : 'toast';
   el.textContent = msg;
   container.appendChild(el);
   if (!persistent) setTimeout(() => el.remove(), 3000);
@@ -1276,6 +1297,7 @@ window.hubNavigate = function hubNavigate(app, url) {
 // #region INIT
 
 loadTheme();
+loadSort();
 
 document.addEventListener('click', async (e) => {
   if (e.target.matches('.parent-breadcrumb')) {
@@ -1311,7 +1333,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('popstate', () => {
   const state = getUrlState();
   currentView = state.view || 'overview';
-  loadSort();
   parentView = state.parentView;
   currentProjectPath = state.project;
   currentProjectName = state.projectName;

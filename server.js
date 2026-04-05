@@ -191,6 +191,14 @@ function createDedupeHash(data) {
   return `${mid}:${rid}`;
 }
 
+function extractTools(content) {
+  if (!Array.isArray(content)) return null;
+  const tools = content
+    .filter(c => c.type === 'tool_use' && c.name)
+    .map(c => c.name);
+  return tools.length > 0 ? tools : null;
+}
+
 function calculateEntryCost(data, pricing) {
   // Auto mode: use costUSD if present, otherwise calculate
   if (data.costUSD != null) return data.costUSD;
@@ -435,6 +443,7 @@ async function loadProjectData(files, pricing) {
         cacheCreationTokens: usage.cache_creation_input_tokens || 0,
         cacheReadTokens: usage.cache_read_input_tokens || 0,
         speed: usage.speed || 'standard',
+        tools: extractTools(parsed.message?.content),
       });
 
       // Capture first user prompt from the JSONL (look for human/user messages)
