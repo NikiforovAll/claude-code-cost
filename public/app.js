@@ -658,8 +658,8 @@ function getChartColors() {
   const style = getComputedStyle(document.body);
   return {
     accent: style.getPropertyValue('--accent').trim() || '#e86f33',
-    accentDim: style.getPropertyValue('--accent-dim').trim() || 'rgba(232,111,51,0.22)',
-    text: style.getPropertyValue('--text-muted').trim() || '#7d808a',
+    chartFill: style.getPropertyValue('--chart-fill').trim() || 'rgba(232,111,51,0.6)',
+    text: style.getPropertyValue('--text-secondary').trim() || '#c2c4c9',
     border: style.getPropertyValue('--border').trim() || '#363840',
     bg: style.getPropertyValue('--bg-elevated').trim() || '#1e2025',
     chart1: style.getPropertyValue('--chart-1').trim() || '#e86f33',
@@ -722,7 +722,7 @@ function renderDailyChart(daily, canvasId = 'dailyChart', chartKey = 'daily') {
         {
           label: 'Daily Cost',
           data: daily.map((d) => d.cost),
-          backgroundColor: c.accentDim,
+          backgroundColor: c.accent,
           borderColor: c.accent,
           borderWidth: 1,
           borderRadius: 3,
@@ -817,7 +817,7 @@ function renderCumulativeChart(messages) {
           label: 'Cumulative Cost',
           data: messages.map((m) => m.cumulativeCost),
           borderColor: c.accent,
-          backgroundColor: c.accentDim,
+          backgroundColor: c.chartFill,
           fill: true,
           borderWidth: 2,
           pointRadius: messages.length > 50 ? 0 : 3,

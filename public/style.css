@@ -14,6 +14,7 @@
   --accent-text: #f0a070;
   --accent-dim: rgba(232, 111, 51, 0.22);
   --accent-glow: rgba(232, 111, 51, 0.55);
+  --chart-fill: rgba(232, 111, 51, 0.6);
   --success: #3ecf8e;
   --success-dim: rgba(62, 207, 142, 0.18);
   --warning: #f0b429;
@@ -22,12 +23,12 @@
   --error-dim: rgba(239, 68, 68, 0.18);
   --mono: 'IBM Plex Mono', monospace;
   --serif: 'Playfair Display', serif;
-  --chart-1: #d4723a;
-  --chart-2: #5b9bd5;
-  --chart-3: #4dab82;
-  --chart-4: #d4a03a;
-  --chart-5: #a87edb;
-  --chart-6: #d4697a;
+  --chart-1: #e86f33;
+  --chart-2: #4a9eda;
+  --chart-3: #3ecf8e;
+  --chart-4: #f0b429;
+  --chart-5: #b784f5;
+  --chart-6: #fb7185;
 }
 
 /* #endregion */
@@ -790,18 +791,19 @@ body.light {
   --accent-text: #b85a20;
   --accent-dim: rgba(232, 111, 51, 0.18);
   --accent-glow: rgba(232, 111, 51, 0.5);
+  --chart-fill: rgba(232, 111, 51, 0.5);
   --success: #1a8a5a;
   --success-dim: rgba(26, 138, 90, 0.15);
   --warning: #b07d0a;
   --warning-dim: rgba(176, 125, 10, 0.15);
   --error: #c53030;
   --error-dim: rgba(197, 48, 48, 0.15);
-  --chart-1: #d4723a;
-  --chart-2: #5b9bd5;
-  --chart-3: #4dab82;
-  --chart-4: #d4a03a;
-  --chart-5: #a87edb;
-  --chart-6: #d4697a;
+  --chart-1: #e86f33;
+  --chart-2: #4a9eda;
+  --chart-3: #3ecf8e;
+  --chart-4: #f0b429;
+  --chart-5: #b784f5;
+  --chart-6: #fb7185;
 }
 
 /* #endregion */
