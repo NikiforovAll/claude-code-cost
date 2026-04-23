@@ -47,9 +47,9 @@ body {
   background: var(--bg-deep);
   color: var(--text-primary);
   line-height: 1.5;
-  height: calc(100vh / 1.2);
+  height: calc(100vh / 1.1);
   display: flex;
-  zoom: 1.2;
+  zoom: 1.1;
   flex-direction: column;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -225,7 +225,7 @@ body {
 }
 
 .dashboard-content {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
