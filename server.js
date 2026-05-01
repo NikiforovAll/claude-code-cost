@@ -487,14 +487,25 @@ async function loadProjectData(files, pricing) {
   return sessions;
 }
 
-async function getOverviewData(days) {
-  const cacheKey = `overview_${days}`;
+function rangeToCutoff(range, now) {
+  if (range === 'today') {
+    const c = new Date(now);
+    c.setHours(0, 0, 0, 0);
+    return c;
+  }
+  if (!range) return null;
+  const c = new Date(now);
+  c.setDate(c.getDate() - range);
+  return c;
+}
+
+async function getOverviewData(range) {
+  const cacheKey = `overview_${range}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
   const now = new Date();
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - days);
+  const cutoff = rangeToCutoff(range, now) || new Date(now);
   const projects = scanProjectDirs(cutoff);
   const cutoffStr = cutoff.toISOString();
 
@@ -581,14 +592,13 @@ async function getOverviewData(days) {
   return result;
 }
 
-async function getProjectsData(days) {
-  const cacheKey = `projects_${days || 'all'}`;
+async function getProjectsData(range) {
+  const cacheKey = `projects_${range || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
   const now = new Date();
-  const cutoff = days ? new Date(now) : null;
-  if (cutoff) cutoff.setDate(cutoff.getDate() - days);
+  const cutoff = rangeToCutoff(range, now);
   const projects = scanProjectDirs(cutoff);
   const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
@@ -634,14 +644,13 @@ async function getProjectsData(days) {
   return sorted;
 }
 
-async function getProjectSessionsData(encodedPath, days) {
-  const cacheKey = `sessions_${encodedPath}_${days || 'all'}`;
+async function getProjectSessionsData(encodedPath, range) {
+  const cacheKey = `sessions_${encodedPath}_${range || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
   const now = new Date();
-  const cutoff = days ? new Date(now) : null;
-  if (cutoff) cutoff.setDate(cutoff.getDate() - days);
+  const cutoff = rangeToCutoff(range, now);
   const projects = scanProjectDirs(cutoff);
   const proj = projects.get(encodedPath);
   if (!proj) return { sessions: [], daily: [], modelDistribution: [] };
@@ -775,9 +784,15 @@ app.get('/hub-config', (_req, res) => {
   res.json({ enabled: !!process.env.CLAUDE_HUB, url: process.env.HUB_URL || null });
 });
 
+function parseRange(raw, fallback = null) {
+  if (raw === 'today') return 'today';
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 app.get('/api/overview', async (req, res) => {
   try {
-    const range = parseInt(req.query.range) || 30;
+    const range = parseRange(req.query.range, 30);
     const data = await getOverviewData(range);
     res.json(data);
   } catch (err) {
@@ -788,7 +803,7 @@ app.get('/api/overview', async (req, res) => {
 
 app.get('/api/projects', async (req, res) => {
   try {
-    const range = req.query.range ? parseInt(req.query.range) : null;
+    const range = parseRange(req.query.range);
     const data = await getProjectsData(range);
     res.json(data);
   } catch (err) {
@@ -799,7 +814,7 @@ app.get('/api/projects', async (req, res) => {
 
 app.get('/api/projects/:path/sessions', async (req, res) => {
   try {
-    const range = req.query.range ? parseInt(req.query.range) : null;
+    const range = parseRange(req.query.range);
     const data = await getProjectSessionsData(req.params.path, range);
     res.json(data);
   } catch (err) {

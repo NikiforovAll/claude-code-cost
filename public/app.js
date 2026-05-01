@@ -150,11 +150,17 @@ function getUrlState() {
 
 function loadDateRange() {
   const v = localStorage.getItem('cc-cost:range');
-  return v ? parseInt(v, 10) || 3 : 3;
+  if (!v) return 3;
+  if (v === 'today') return 'today';
+  return parseInt(v, 10) || 3;
 }
 
 function saveDateRange(val) {
   localStorage.setItem('cc-cost:range', String(val));
+}
+
+function rangeLabel(r) {
+  return r === 'today' ? 'today' : `${r} days`;
 }
 
 function loadSort() {
@@ -313,10 +319,15 @@ function renderOverview() {
           <div class="card-label">Today</div>
           <div class="card-value cost">${formatCost(s.todayCost)}</div>
         </div>
+        ${
+          dateRange === 'today'
+            ? ''
+            : `
         <div class="stat-card">
           <div class="card-label">${dateRange} Days</div>
           <div class="card-value cost">${formatCost(s.totalCost)}</div>
-        </div>
+        </div>`
+        }
         <div class="stat-card">
           <div class="card-label">Sessions</div>
           <div class="card-value">${s.totalSessions}</div>
@@ -1001,11 +1012,11 @@ function sortBy(field) {
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onchange
 async function onRangeChange(val) {
-  dateRange = parseInt(val, 10) || 7;
+  dateRange = val === 'today' ? 'today' : parseInt(val, 10) || 7;
   saveDateRange(dateRange);
   lastRenderHash = {};
   updateUrl();
-  const t = showToast(`Recalculating for ${dateRange} days...`, true);
+  const t = showToast(`Recalculating for ${rangeLabel(dateRange)}...`, true);
   await loadAndRender(currentView);
   dismissToast(t);
 }
@@ -1014,7 +1025,7 @@ async function refreshData() {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('loading');
   btn.disabled = true;
-  const t = showToast(`Recalculating for ${dateRange} days...`, true);
+  const t = showToast(`Recalculating for ${rangeLabel(dateRange)}...`, true);
   const minWait = new Promise((r) => setTimeout(r, 250));
   try {
     await fetch('/api/refresh', { method: 'POST' });
