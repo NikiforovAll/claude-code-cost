@@ -1303,6 +1303,26 @@ window.hubNavigate = function hubNavigate(app, url) {
   window.parent?.postMessage({ type: 'hub:navigate', app, url }, '*');
 };
 
+(function initHubTheme() {
+  const getTheme = () => (document.body.classList.contains('light') ? 'light' : 'dark');
+  const hubOrigin = () => (window.__HUB__?.url ? new URL(window.__HUB__.url).origin : null);
+  let lastTheme = getTheme();
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.origin !== hubOrigin()) return;
+    if (e.data?.type !== 'hub:theme') return;
+    if (getTheme() === e.data.theme) return;
+    window.toggleTheme();
+    lastTheme = getTheme();
+  });
+  new MutationObserver(() => {
+    const t = getTheme();
+    if (t === lastTheme) return;
+    lastTheme = t;
+    const origin = hubOrigin();
+    if (origin) window.parent.postMessage({ type: 'hub:theme', theme: t }, origin);
+  }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+})();
+
 // #endregion
 
 // #region INIT
