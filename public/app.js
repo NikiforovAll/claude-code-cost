@@ -682,6 +682,15 @@ function getChartColors() {
   };
 }
 
+// Translucent fill from a hex color so chart bars read as a quiet wash, not a solid block.
+function hexToRgba(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function chartDefaults() {
   const c = getChartColors();
   return {
@@ -733,9 +742,9 @@ function renderDailyChart(daily, canvasId = 'dailyChart', chartKey = 'daily') {
         {
           label: 'Daily Cost',
           data: daily.map((d) => d.cost),
-          backgroundColor: c.accent,
+          backgroundColor: c.chartFill,
           borderColor: c.accent,
-          borderWidth: 1,
+          borderWidth: 1.5,
           borderRadius: 3,
         },
       ],
@@ -779,8 +788,9 @@ function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
       datasets: [
         {
           data: models.map((m) => m.cost),
-          backgroundColor: models.map((_, i) => palette[i % palette.length]),
-          borderWidth: 0,
+          backgroundColor: models.map((_, i) => hexToRgba(palette[i % palette.length], 0.5)),
+          borderColor: models.map((_, i) => palette[i % palette.length]),
+          borderWidth: 1.5,
           borderRadius: 3,
         },
       ],
