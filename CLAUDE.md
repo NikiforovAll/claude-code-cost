@@ -5,7 +5,7 @@ Cost visualization dashboard for Claude Code usage. Reads JSONL session files fr
 ## Commands
 
 ```bash
-npm start          # Start server on port 3458
+npm start          # Start server on port 3543
 npm run dev        # Start with --open flag
 node server.js --port 3000 --open  # Custom port
 ```

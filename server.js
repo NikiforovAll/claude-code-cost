@@ -18,7 +18,7 @@ function getArg(name) {
   return process.argv[eqIdx + 1] || null;
 }
 
-const PORT = getArg('port') || process.env.PORT || 3458;
+const PORT = getArg('port') || process.env.PORT || 3543;
 const claudeDirArg = getArg('dir');
 const CLAUDE_DIR = claudeDirArg
   ? claudeDirArg.replace(/^~/, os.homedir())
