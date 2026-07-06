@@ -4,7 +4,11 @@
 [![license](https://img.shields.io/npm/l/claude-code-cost)](LICENSE)
 [![npm downloads](https://img.shields.io/npm/dm/claude-code-cost)](https://www.npmjs.com/package/claude-code-cost)
 
-> Know what Claude Code costs you — per day, per project, per session.
+**[Live Demo & Docs](https://nikiforovall.blog/claude-code-cost/)**
+
+> Know what [Claude Code](https://docs.anthropic.com/en/docs/claude-code) costs you — per day, per project, per session.
+
+![Cost dashboard overview](assets/shot-overview.png)
 
 ## Getting Started
 
@@ -12,90 +16,35 @@
 npx claude-code-cost --open
 ```
 
-Open http://localhost:3543 (or use `--open` to auto-launch the browser).
-
-That's it. No hooks, no config — the dashboard reads your existing Claude Code session files.
-
-### Overview
-
-![Overview — Dark](assets/overview-dark.png)
-![Overview — Light](assets/overview-light.png)
-
-### Projects
-
-![Projects — Dark](assets/projects-dark.png)
-![Projects — Light](assets/projects-light.png)
-
-### Session Detail
-
-![Session — Dark](assets/session-dark.png)
-![Session — Light](assets/sesssion-light.png)
+That's it — no hooks, no config. The dashboard reads the JSONL session logs Claude Code already writes to `~/.claude/projects/` and aggregates them server-side. Completely read-only; nothing leaves your machine.
 
 ## Features
 
-- **Top-down drill-down** — Total cost → per project → per session → per message
-- **Dynamic pricing** — Fetches live model prices from [LiteLLM](https://github.com/BerriAI/litellm), supports tiered pricing (200K threshold), cache token costs, and fast mode multipliers
-- **Daily cost chart** — Bar chart with cumulative line, configurable date range (1d / 3d / 7d / 30d / 90d / 1y)
-- **Model distribution** — Donut chart showing cost breakdown by model
-- **Cache efficiency** — Track how well prompt caching is working across your sessions
-- **Project breakdown** — See which projects cost the most, sortable by cost, sessions, or activity
-- **Session detail** — Message-level cost breakdown with cumulative cost and token stacked bar charts
-- **Dark & light theme** — Matches the Claude Code Hub design system
-- **Hub integration** — Works as a tab in Claude Code Hub alongside Kanban and Marketplace
-- **Instant reload** — API responses cached in browser; Refresh button for fresh data
+- **Top-down drill-down** — total → project → session → message; every number is one click from its breakdown
+- **Dynamic pricing** — live model prices from [LiteLLM](https://github.com/BerriAI/litellm) with tiered pricing (200K threshold), cache token costs, and fast mode multipliers; offline fallback included
+- **Daily cost chart** — configurable range from 1 day to 1 year
+- **Cost by model** — see how spend splits across Opus, Sonnet, and Haiku
+- **Cache efficiency** — cache reads vs. fresh input tokens across sessions
+- **Session detail** — cumulative cost curve, stacked token bars, per-message table with model, tools, and running total
+- **Accurate accounting** — same pricing logic as [ccusage](https://github.com/ryoppippi/ccusage): pre-calculated `costUSD` when present, deduplication by `messageId + requestId`
+- **17 color themes** — Ember, Gruvbox, Catppuccin, Tokyo Night, Dracula, Nord, and more — each in light and dark, PWA installable
+- **Hub integration** — runs standalone or as a tab in [Claude Code Hub](https://github.com/NikiforovAll/claude-code-hub) alongside Kanban, Marketplace, and Memory
+
+![Project drill-down with per-session costs](assets/shot-project-sessions.png)
+
+![Session detail with cumulative cost and per-message table](assets/shot-session-detail.png)
+
+![Dark theme — Tokyo Night](assets/shot-dark-theme.png)
 
 ## Configuration
 
-```bash
-PORT=8080 npx claude-code-cost              # Custom port
-npx claude-code-cost --open                 # Auto-open browser
-npx claude-code-cost --dir=~/.claude-work   # Custom Claude config dir
+```
+--port <number>   Custom port (default: 3543, falls back if busy)
+--dir <path>      Custom Claude config dir (default: ~/.claude)
+--open            Open browser on start
 ```
 
-If port 3543 is in use, the server falls back to a random available port.
-
-### Global install
-
-```bash
-npm install -g claude-code-cost
-claude-code-cost --open
-```
-
-## How It Works
-
-Claude Code writes conversation logs to `~/.claude/projects/` as JSONL files. Each assistant response includes token counts (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`) and model info.
-
-The dashboard:
-1. **Reads** JSONL session files (streamed line-by-line for large files)
-2. **Fetches** live model pricing from LiteLLM (cached 6h, offline fallback included)
-3. **Calculates** cost per message using tiered pricing with 200K token threshold
-4. **Aggregates** by day, project, and session — all server-side
-5. **Renders** with Chart.js — no build step, vanilla JS
-
-Nothing is modified — the dashboard is read-only.
-
-### Cost Calculation
-
-Uses the same pricing logic as [ccusage](https://github.com/ryoppippi/ccusage):
-
-- **Auto mode** — Uses pre-calculated `costUSD` from JSONL when available, otherwise calculates from tokens
-- **Tiered pricing** — Tokens above 200K threshold charged at higher rate (Claude 1M context models)
-- **Fast mode** — Applies provider-specific multiplier for fast/streaming responses
-- **Deduplication** — Skips duplicate messages by `messageId + requestId` hash
-
-## FAQ
-
-**Where does pricing data come from?**
-Live from [LiteLLM's pricing dataset](https://github.com/BerriAI/litellm) (2000+ models). Cached for 6 hours. If the fetch fails, a bundled offline snapshot of Claude model prices is used.
-
-**Does it work offline?**
-Yes. The offline pricing fallback covers all current Claude models. PWA support included.
-
-**Does it modify any files?**
-No. Completely read-only — only reads JSONL files from `~/.claude/projects/`.
-
-**Does it work with Claude Code Hub?**
-Yes. Exposes `/hub-config` endpoint and forwards keyboard shortcuts (Ctrl+Alt+Arrow, Alt+1-9) to the hub parent frame.
+The config dir can also be set via the `CLAUDE_CONFIG_DIR` environment variable.
 
 ## License
 
