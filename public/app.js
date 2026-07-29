@@ -240,6 +240,9 @@ function updateUrl() {
 const BROWSER_CACHE_TTL = 5 * 60 * 1000; // 5 min
 const CACHE_VERSION = 3;
 let forceRefresh = false;
+// Age of the data on screen, for the auto-refresh staleness check. A cache hit carries its own
+// timestamp forward, so a reload with a warm cache doesn't look freshly fetched.
+let dataFetchedAt = 0;
 
 function getCached(key) {
   if (forceRefresh) return null;
@@ -248,6 +251,7 @@ function getCached(key) {
     if (!raw) return null;
     const { data, ts, v } = JSON.parse(raw);
     if (v !== CACHE_VERSION || Date.now() - ts > BROWSER_CACHE_TTL) return null;
+    dataFetchedAt = Math.max(dataFetchedAt, ts);
     return data;
   } catch {
     return null;
@@ -305,6 +309,7 @@ async function fetchJSON(url, skipCache) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
+  dataFetchedAt = Date.now();
   if (!skipCache) setLocalCache(url, data);
   return data;
 }
@@ -1480,6 +1485,47 @@ function dismissToast(el) {
 
 // #endregion
 
+// #region AUTO_REFRESH
+
+// Whether cost is the app the user is looking at. document.hidden alone can't answer that inside
+// the hub: the hub hides inactive apps with display:none, and a nested document's visibilityState
+// mirrors the top-level tab regardless. So the hub tells us (hub:active); standalone stays true.
+let hubActive = true;
+const STALE_CHECK_MS = 30_000;
+// Three triggers share refreshIfStale (interval, visibilitychange, hub:active), so they'd otherwise
+// overlap and the first one's finally would clear forceRefresh out from under the others.
+let refreshing = false;
+
+function isAppActive() {
+  return !document.hidden && hubActive;
+}
+
+async function refreshIfStale() {
+  if (refreshing || !isAppActive()) return;
+  if (Date.now() - dataFetchedAt < BROWSER_CACHE_TTL) return;
+  // No clearLocalCache() unlike refreshData: forceRefresh already bypasses the cache read, and the
+  // fresh payloads overwrite their own keys. Views the user isn't on keep their cache.
+  refreshing = true;
+  forceRefresh = true;
+  try {
+    await loadAndRender(currentView);
+  } catch {
+    /* transient — the next tick retries */
+  } finally {
+    forceRefresh = false;
+    refreshing = false;
+  }
+}
+
+(function initAutoRefresh() {
+  // Polled rather than a 5-min timer: staleness also has to be re-evaluated the moment the app
+  // becomes active again, and a single clock keeps the two paths from racing.
+  setInterval(refreshIfStale, STALE_CHECK_MS);
+  document.addEventListener('visibilitychange', refreshIfStale);
+})();
+
+// #endregion
+
 // #region HUB_INTEGRATION
 
 (async function initHub() {
@@ -1546,6 +1592,16 @@ window.hubNavigate = function hubNavigate(app, url) {
   }).observe(document.body, {
     attributes: true,
     attributeFilter: ['class', 'data-color-theme'],
+  });
+})();
+
+(function initHubActive() {
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.origin !== hubOrigin()) return;
+    if (e.data?.type !== 'hub:active') return;
+    hubActive = !!e.data.active;
+    // Becoming active is the main refresh trigger — the interval only covers staying active.
+    if (hubActive) refreshIfStale();
   });
 })();
 
