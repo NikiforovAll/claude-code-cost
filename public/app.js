@@ -1062,7 +1062,7 @@ function buildThemeMenu() {
   const menu = document.getElementById('themeMenu');
   menu.innerHTML = COLOR_THEMES.map(
     ([id, label]) =>
-      `<button type="button" class="theme-menu-item" data-theme-id="${id}"
+      `<button type="button" class="theme-menu-item theme-swatch-${id}" data-theme-id="${id}"
          onclick="event.stopPropagation(); setColorTheme('${id}'); toggleThemeMenu()">
          <span class="theme-swatch theme-swatch-${id}"><i class="sw-bg"></i><i class="sw-accent"></i><i class="sw-ink"></i></span>${label}
        </button>`,

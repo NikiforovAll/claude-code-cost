@@ -291,8 +291,11 @@ body {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+/* Highlighted with the row's *own* theme accent rather than the active theme's, so the selected
+   row previews the theme it names. --sw-accent comes from the theme-swatch-<id> class on the row. */
 .theme-menu-item.on {
-  color: var(--accent-text);
+  color: var(--sw-accent, var(--accent-text));
+  background: color-mix(in srgb, var(--sw-accent, var(--accent-text)) 16%, transparent);
 }
 /* 3-dot palette preview: surface, accent, ink (colors from themes.css vars) */
 .theme-swatch {
