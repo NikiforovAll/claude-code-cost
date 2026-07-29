@@ -9,6 +9,11 @@ let sessionsModelDistribution = null;
 let sessionDetailData = null;
 let currentProjectPath = null;
 let currentProjectName = null;
+// Two distinct notions, deliberately not merged: scope is what the views aggregate over
+// (hub-owned, persisted, never written to the URL by updateUrl); currentProjectPath is the
+// drill-down cursor, and `?project=` in the URL means "I drilled in" to five readers.
+let scopeProject = null;
+let scopeProjectName = null;
 let currentSessionId = null;
 let parentView = 'projects';
 let lastSelectedProject = null;
@@ -112,6 +117,17 @@ function parentBreadcrumb() {
   return `<a class="parent-breadcrumb">${label}</a>`;
 }
 
+// In-view reminder that the numbers below cover one project, not everything. Reuses the
+// breadcrumb styling — same role (where am I), no new CSS.
+function scopeIndicator() {
+  if (!scopeProject) return '';
+  return `<div class="breadcrumb">
+      <span class="current">${esc(scopeProjectName || scopeProject)}</span>
+      <span class="sep">/</span>
+      <a onclick="clearScope()">all projects</a>
+    </div>`;
+}
+
 function focusPreviousRow(view) {
   let selector;
   if (view === 'overview' || view === 'projects') {
@@ -157,6 +173,28 @@ function loadDateRange() {
 
 function saveDateRange(val) {
   localStorage.setItem('cc-cost:range', String(val));
+}
+
+function loadScope() {
+  const raw = localStorage.getItem('cc-cost:scope');
+  if (!raw) return;
+  try {
+    const { encoded, name } = JSON.parse(raw);
+    if (encoded) {
+      scopeProject = encoded;
+      scopeProjectName = name || encoded;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveScope() {
+  if (scopeProject) {
+    localStorage.setItem('cc-cost:scope', JSON.stringify({ encoded: scopeProject, name: scopeProjectName }));
+  } else {
+    localStorage.removeItem('cc-cost:scope');
+  }
 }
 
 function rangeLabel(r) {
@@ -231,6 +269,9 @@ function pruneLocalCache() {
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k.startsWith('cc-cost:')) continue;
+    // Prefs are not cache entries — they have no ts, so they'd sort oldest-first and be
+    // evicted ahead of real data while also eating the entry budget.
+    if (isPrefKey(k)) continue;
     try {
       const { ts } = JSON.parse(localStorage.getItem(k));
       entries.push({ k, ts });
@@ -245,7 +286,7 @@ function pruneLocalCache() {
 }
 
 function isPrefKey(k) {
-  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range';
+  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range' || k === 'cc-cost:scope';
 }
 function clearLocalCache() {
   const keys = [];
@@ -268,12 +309,38 @@ async function fetchJSON(url, skipCache) {
   return data;
 }
 
+// fetchJSON caches by full URL, so the scoped and unscoped variants key apart for free.
+function scopeParam() {
+  return scopeProject ? `&project=${encodeURIComponent(scopeProject)}` : '';
+}
+
 async function fetchOverview() {
-  overviewData = await fetchJSON(`/api/overview?range=${dateRange}`);
+  overviewData = await fetchJSON(`/api/overview?range=${dateRange}${scopeParam()}`);
+}
+
+// Fire-and-forget label upgrade: /api/projects/:path/sessions carries no project name, so ask
+// the scoped projects endpoint (one row) for the decoded one.
+async function resolveScopeName() {
+  const target = scopeProject;
+  try {
+    const rows = await fetchJSON(`/api/projects?range=${dateRange}${scopeParam()}`);
+    const name = rows?.[0]?.encodedPath === target ? rows[0].name : null;
+    if (!name || scopeProject !== target) return;
+    scopeProjectName = name;
+    if (currentProjectPath === target) currentProjectName = name;
+    saveScope();
+    renderScopeChip();
+    lastRenderHash = {};
+    // Repaint via loadAndRender rather than a renderer directly: fetchJSON serves the already
+    // cached payloads, so this is a re-render, not a second round trip.
+    await loadAndRender(currentView);
+  } catch {
+    /* label stays encoded — cosmetic only */
+  }
 }
 
 async function fetchProjects() {
-  projectsData = await fetchJSON(`/api/projects?range=${dateRange}`);
+  projectsData = await fetchJSON(`/api/projects?range=${dateRange}${scopeParam()}`);
 }
 
 async function fetchSessions(encodedPath) {
@@ -305,15 +372,31 @@ function renderOverview() {
   }
 
   const s = overviewData.summary;
-  const h = JSON.stringify({ overviewData, sort: viewSort.overview });
+  // Scope is in the hash because two different empty projects produce byte-identical payloads —
+  // without it the indicator label would never repaint.
+  const h = JSON.stringify({ overviewData, sort: viewSort.overview, scopeProject, scopeProjectName });
   if (lastRenderHash.overview === h) return;
   lastRenderHash.overview = h;
 
   const daily = overviewData.daily || [];
   const models = overviewData.modelDistribution || [];
 
+  // Return before any chart call so no canvas is touched — there are none in this markup.
+  if (scopeProject && s.totalSessions === 0) {
+    el.innerHTML = `<div class="dashboard-content">
+      ${scopeIndicator()}
+      <div class="empty-state">
+        <div class="empty-icon">$</div>
+        <div>No usage for ${esc(scopeProjectName || scopeProject)} in the last ${rangeLabel(dateRange)}</div>
+        <div>Clear the project scope to see everything.</div>
+      </div>
+    </div>`;
+    return;
+  }
+
   el.innerHTML = `
     <div class="dashboard-content">
+      ${scopeIndicator()}
       <div class="cards-row">
         <div class="stat-card">
           <div class="card-label">Today</div>
@@ -404,24 +487,31 @@ function renderProjects() {
     return;
   }
 
-  const h = JSON.stringify({ projectsData, sort: viewSort.projects });
+  const h = JSON.stringify({ projectsData, sort: viewSort.projects, scopeProject, scopeProjectName });
   if (lastRenderHash.projects === h) return;
   lastRenderHash.projects = h;
 
   const sorted = [...projectsData].sort((a, b) => sortCompare(a, b, viewSort.projects.field, viewSort.projects.order));
 
   if (sorted.length === 0) {
-    el.innerHTML = `<div class="dashboard-content"><div class="empty-state">
+    el.innerHTML = `<div class="dashboard-content">
+      ${scopeIndicator()}
+      <div class="empty-state">
       <div class="empty-icon">$</div>
-      <div>No project data found</div>
-      <div>Make sure Claude Code session files exist in ~/.claude/projects/</div>
+      ${
+        scopeProject
+          ? `<div>No usage for ${esc(scopeProjectName || scopeProject)} in the last ${rangeLabel(dateRange)}</div>
+             <div>Clear the project scope to see everything.</div>`
+          : `<div>No project data found</div>
+             <div>Make sure Claude Code session files exist in ~/.claude/projects/</div>`
+      }
     </div></div>`;
     return;
   }
 
   el.innerHTML = `
     <div class="dashboard-content">
-      <div class="section-title">All Projects</div>
+      ${scopeProject ? scopeIndicator() : '<div class="section-title">All Projects</div>'}
       <table class="data-table">
         <thead><tr>
           <th class="${thClass('name')}" onclick="sortBy('name')">Project ${sortArrow('name')}</th>
@@ -1096,6 +1186,45 @@ async function onRangeChange(val) {
   dismissToast(t);
 }
 
+function renderScopeChip() {
+  const chip = document.getElementById('scopeChip');
+  if (!chip) return;
+  chip.hidden = !scopeProject;
+  if (scopeProject) {
+    document.getElementById('scopeChipName').textContent = scopeProjectName || scopeProject;
+  }
+}
+
+// Assigns before the first await (the lastTheme echo-suppression idiom), so the hub's
+// per-iframe-load replay of the same project is absorbed for free.
+async function applyScope(encoded, name) {
+  if (encoded === scopeProject) return;
+  scopeProject = encoded || null;
+  scopeProjectName = encoded ? name || encoded : null;
+  saveScope();
+  lastRenderHash = {};
+  renderScopeChip();
+
+  if (!scopeProject) {
+    // Clearing drops the cursor too — it was the scope, and there is nothing left to drill into.
+    await navigate('overview');
+    return;
+  }
+  // A scope means "show me this project", so land on its sessions rather than a one-row
+  // overview. Null the stale payloads first so the loading state shows, not the old project's
+  // rows.
+  sessionsData = null;
+  sessionDetailData = null;
+  parentView = 'overview';
+  await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
+async function clearScope() {
+  // No redirect when clearing: the cursor is still a valid drill-down.
+  await applyScope(null, null);
+}
+
 async function refreshData() {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('loading');
@@ -1362,16 +1491,25 @@ function dismissToast(el) {
   window.__HUB__ = cfg;
 
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    const fwd = (key) => {
       e.preventDefault();
-      window.parent?.postMessage({ type: 'hub:keydown', key: e.key }, '*');
+      window.parent?.postMessage({ type: 'hub:keydown', key, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey }, '*');
+    };
+    if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      fwd(e.key);
+    }
+    // Its own branch: the Alt+digit case below requires !ctrlKey.
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+      fwd(e.key);
     }
     if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
-      e.preventDefault();
-      window.parent?.postMessage({ type: 'hub:keydown', key: e.key }, '*');
+      fwd(e.key);
     }
   });
 })();
+
+// Hoisted out of initHubTheme so initHubProject can share it.
+const hubOrigin = () => (window.__HUB__?.url ? new URL(window.__HUB__.url).origin : null);
 
 window.hubNavigate = function hubNavigate(app, url) {
   if (!window.__HUB__?.enabled) return;
@@ -1381,7 +1519,6 @@ window.hubNavigate = function hubNavigate(app, url) {
 (function initHubTheme() {
   const getTheme = () => (document.body.classList.contains('light') ? 'light' : 'dark');
   const getColorTheme = () => document.body.dataset.colorTheme || 'ember';
-  const hubOrigin = () => (window.__HUB__?.url ? new URL(window.__HUB__.url).origin : null);
   // lastTheme/lastColorTheme are updated synchronously when applying a hub
   // message, so the (async) observer sees no diff and doesn't echo it back.
   let lastTheme = getTheme();
@@ -1412,6 +1549,17 @@ window.hubNavigate = function hubNavigate(app, url) {
   });
 })();
 
+(function initHubProject() {
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.origin !== hubOrigin()) return;
+    if (e.data?.type !== 'hub:project') return;
+    // The hub owns the abs->encoded transform, so cost never converts anything itself.
+    const encoded = e.data.encoded;
+    if (typeof encoded !== 'string' || !encoded) return;
+    applyScope(encoded, e.data.name);
+  });
+})();
+
 // #endregion
 
 // #region INIT
@@ -1432,6 +1580,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   dateRange = loadDateRange();
   document.getElementById('rangeSelect').value = dateRange;
 
+  // Resolve the scope before any navigate() so the first /api/overview already carries
+  // &project=. Read window.location.search directly, not getUrlState() — that falls back to
+  // sessionStorage['cc-cost:nav'] when the URL has no view/session/project, which would
+  // discard a scope-only URL.
+  loadScope();
+  const urlScope = new URLSearchParams(window.location.search).get('scope');
+  if (urlScope) {
+    scopeProject = urlScope;
+    scopeProjectName = urlScope;
+    saveScope();
+  }
+  renderScopeChip();
+  // A ?scope= deep link carries only the encoded dir name; the hub always sends a real one.
+  if (scopeProject && scopeProjectName === scopeProject) resolveScopeName();
+
   if (state.session) {
     currentSessionId = state.session;
     parentView = state.parentView;
@@ -1445,6 +1608,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await navigate('sessions', { project: state.project, projectName: state.projectName });
   } else if (state.view === 'projects') {
     await navigate('projects');
+  } else if (scopeProject) {
+    // Same landing rule as applyScope: a scope with no cursor of its own opens its sessions.
+    parentView = 'overview';
+    currentProjectName = scopeProjectName;
+    await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
   } else {
     await navigate('overview');
   }

@@ -34,6 +34,10 @@
       <button class="topbar-nav-btn active" data-view="overview" onclick="navigate('overview')">Overview</button>
       <button class="topbar-nav-btn" data-view="projects" onclick="navigate('projects')">Projects</button>
     </div>
+    <span class="scope-chip" id="scopeChip" hidden title="Scoped to one project">
+      <span id="scopeChipName"></span>
+      <button class="scope-chip-clear" onclick="clearScope()" title="Clear project scope">&times;</button>
+    </span>
     <select class="topbar-select" id="rangeSelect" onchange="onRangeChange(this.value)">
       <option value="today">Today</option>
       <option value="1">1 day</option>
@@ -98,6 +102,7 @@
               <tr><td><kbd>R</kbd></td><td>Refresh data</td></tr>
               <tr><td><kbd>T</kbd></td><td>Toggle theme</td></tr>
               <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></td><td>Switch project (hub only)</td></tr>
             </table>
           </div>
         </div>

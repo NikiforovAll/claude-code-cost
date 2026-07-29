@@ -255,7 +255,9 @@ function buildModelDistribution(modelCosts) {
     .sort((a, b) => b.cost - a.cost);
 }
 
-function scanProjectDirs(cutoffDate) {
+// onlyKey narrows the scan to a single encoded project dir. The dir name *is* the key, so this
+// skips the per-project readdir and per-file statSync for everything else.
+function scanProjectDirs(cutoffDate, onlyKey) {
   const projects = new Map();
   const cutoffMs = cutoffDate ? cutoffDate.getTime() : 0;
   for (const baseDir of getProjectsDirs()) {
@@ -263,6 +265,7 @@ function scanProjectDirs(cutoffDate) {
       const entries = fs.readdirSync(baseDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (onlyKey && entry.name !== onlyKey) continue;
         const projDir = path.join(baseDir, entry.name);
         const files = [];
         try {
@@ -499,14 +502,14 @@ function rangeToCutoff(range, now) {
   return c;
 }
 
-async function getOverviewData(range) {
-  const cacheKey = `overview_${range}`;
+async function getOverviewData(range, projectFilter) {
+  const cacheKey = `overview_${range}_${projectFilter || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
   const now = new Date();
   const cutoff = rangeToCutoff(range, now) || new Date(now);
-  const projects = scanProjectDirs(cutoff);
+  const projects = scanProjectDirs(cutoff, projectFilter);
   const cutoffStr = cutoff.toISOString();
 
   let totalCost = 0, totalSessions = 0;
@@ -592,14 +595,14 @@ async function getOverviewData(range) {
   return result;
 }
 
-async function getProjectsData(range) {
-  const cacheKey = `projects_${range || 'all'}`;
+async function getProjectsData(range, projectFilter) {
+  const cacheKey = `projects_${range || 'all'}_${projectFilter || 'all'}`;
   if (isCacheValid(cacheKey)) return dataCache[cacheKey];
 
   const pricing = await fetchPricing();
   const now = new Date();
   const cutoff = rangeToCutoff(range, now);
-  const projects = scanProjectDirs(cutoff);
+  const projects = scanProjectDirs(cutoff, projectFilter);
   const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
 
@@ -790,10 +793,24 @@ function parseRange(raw, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Encoded project-dir name (the hub sends it pre-encoded — see encodeProjectPath in the hub's
+// public/app.js; this regex must stay a superset of that transform's output). Only ever used as
+// a Map key, never joined into a path — the regex exists to keep unbounded strings out of the
+// cache keys.
+// Returns undefined for absent, null for malformed, so callers can 400 instead of silently
+// dropping the scope.
+function parseProject(raw) {
+  if (raw === undefined || raw === '') return undefined;
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9._-]+$/.test(raw)) return null;
+  return raw;
+}
+
 app.get('/api/overview', async (req, res) => {
   try {
     const range = parseRange(req.query.range, 30);
-    const data = await getOverviewData(range);
+    const project = parseProject(req.query.project);
+    if (project === null) return res.status(400).json({ error: 'Invalid project' });
+    const data = await getOverviewData(range, project);
     res.json(data);
   } catch (err) {
     console.error('[API] overview error:', err);
@@ -804,7 +821,9 @@ app.get('/api/overview', async (req, res) => {
 app.get('/api/projects', async (req, res) => {
   try {
     const range = parseRange(req.query.range);
-    const data = await getProjectsData(range);
+    const project = parseProject(req.query.project);
+    if (project === null) return res.status(400).json({ error: 'Invalid project' });
+    const data = await getProjectsData(range, project);
     res.json(data);
   } catch (err) {
     console.error('[API] projects error:', err);
