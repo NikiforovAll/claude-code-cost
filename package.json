@@ -4,7 +4,7 @@
   "description": "Cost dashboard for Claude Code usage",
   "main": "server.js",
   "bin": {
-    "claude-code-cost": "./server.js"
+    "claude-code-cost": "server.js"
   },
   "scripts": {
     "start": "node server.js",
