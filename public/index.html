@@ -36,7 +36,11 @@
     </div>
     <span class="scope-chip" id="scopeChip" hidden title="Scoped to one project">
       <span id="scopeChipName"></span>
-      <button class="scope-chip-clear" onclick="clearScope()" title="Clear project scope">&times;</button>
+      <button class="scope-chip-clear" onclick="clearScope()" title="Clear project scope" aria-label="Clear project scope">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M3 3l6 6M9 3l-6 6"/>
+        </svg>
+      </button>
     </span>
     <select class="topbar-select" id="rangeSelect" onchange="onRangeChange(this.value)">
       <option value="today">Today</option>

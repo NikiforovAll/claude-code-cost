@@ -155,18 +155,33 @@ body {
   color: var(--accent-text);
 }
 
+/* Native chevron is OS-styled and clashes with the mono topbar, so appearance is reset
+   and the chevron redrawn; its gray reads as tertiary text in both themes. */
 .topbar-select {
-  background: var(--bg-elevated);
+  appearance: none;
+  background-color: var(--bg-elevated);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238a8d95' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5L5 5 9 1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 9px 6px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   font-family: var(--mono);
   font-size: 11px;
-  padding: 4px 8px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 6px 26px 6px 10px;
   outline: none;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-.topbar-select:focus {
+.topbar-select:hover {
+  border-color: var(--accent);
+  color: var(--text-secondary);
+}
+.topbar-select:focus-visible {
   border-color: var(--accent);
 }
 .topbar-select option {
@@ -200,16 +215,25 @@ body {
   white-space: nowrap;
 }
 
+/* SVG cross instead of a &times; glyph: the glyph's ink sits ~1px below its line box, so it never centers. */
 .scope-chip-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
   background: none;
   border: none;
+  border-radius: 4px;
   color: inherit;
   cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1;
   opacity: 0.7;
-  padding: 0 3px;
+}
+
+.scope-chip-clear svg {
+  width: 10px;
+  height: 10px;
 }
 
 .scope-chip-clear:hover {

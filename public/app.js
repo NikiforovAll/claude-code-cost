@@ -1224,6 +1224,16 @@ async function applyScope(encoded, name) {
   await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
 }
 
+// Scope teardown without applyScope's landing rule, for callers that navigate themselves.
+function dropScope() {
+  if (!scopeProject) return;
+  scopeProject = null;
+  scopeProjectName = null;
+  saveScope();
+  lastRenderHash = {};
+  renderScopeChip();
+}
+
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function clearScope() {
   // No redirect when clearing: the cursor is still a valid drill-down.
@@ -1374,21 +1384,23 @@ function activateSelectedRow() {
 async function goBack() {
   let target;
   if (currentView === 'detail') {
-    if (currentProjectPath) {
-      target = 'sessions';
-      await navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
-    } else {
-      target = parentView;
-      await navigate(parentView);
-    }
+    target = currentProjectPath ? 'sessions' : parentView;
   } else if (currentView === 'sessions') {
     target = parentView;
-    await navigate(parentView);
   } else if (currentView === 'projects') {
     target = 'overview';
-    await navigate('overview');
   }
-  if (target) focusPreviousRow(target);
+  if (!target) return;
+
+  if (target === 'sessions') {
+    await navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+  } else {
+    // Backing out to a top-level view drops the scope with the cursor: a scoped overview
+    // showing one project has no visible cause once you've left that project behind.
+    dropScope();
+    await navigate(target);
+  }
+  focusPreviousRow(target);
 }
 
 document.addEventListener('keydown', (e) => {
