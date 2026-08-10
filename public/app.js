@@ -33,10 +33,27 @@ let navCounter = 0;
 
 // #region UTILS
 
+// The div.textContent -> innerHTML trick escapes only & < > : innerHTML serializes
+// for *text* context, where quotes are correctly left raw. That made every
+// attribute interpolation breakable with a bare " . It cannot be patched, so the
+// escaping is explicit here.
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
+
 function esc(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
+  if (str == null) return '';
+  return String(str).replace(/[&<>"'`]/g, (c) => HTML_ESCAPES[c]);
+}
+
+// For a value landing inside a quoted JS string inside an HTML attribute —
+// onclick="fn('${escAttrJs(x)}')". The browser HTML-decodes the attribute before
+// the JS parser sees it, so the JS escape must happen first and be escaped in turn.
+function escAttrJs(value) {
+  const js = String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+  return esc(js);
 }
 
 function formatCost(usd) {
@@ -459,7 +476,7 @@ function renderOverview() {
             .sort((a, b) => sortCompare(a, b, viewSort.overview.field, viewSort.overview.order))
             .map(
               (p) => `
-            <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
+            <tr data-clickable onclick="navigateToSessions('${escAttrJs(p.encodedPath)}', '${escAttrJs(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
               <td>${p.sessionCount}</td>
@@ -529,7 +546,7 @@ function renderProjects() {
           ${sorted
             .map(
               (p) => `
-            <tr data-clickable onclick="navigateToSessions('${esc(p.encodedPath)}', '${esc(p.name)}')">
+            <tr data-clickable onclick="navigateToSessions('${escAttrJs(p.encodedPath)}', '${escAttrJs(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
               <td>${p.sessionCount}</td>
@@ -609,7 +626,7 @@ function renderSessions() {
             .sort((a, b) => sortCompare(a, b, viewSort.sessions.field, viewSort.sessions.order))
             .map(
               (s) => `
-            <tr data-clickable onclick="navigateToDetail('${esc(s.sessionId)}')">
+            <tr data-clickable onclick="navigateToDetail('${escAttrJs(s.sessionId)}')">
               <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || s.sessionId)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
@@ -652,7 +669,7 @@ function renderDetail() {
       <div class="breadcrumb">
         ${parentBreadcrumb()}
         <span class="sep">/</span>
-        <a onclick="navigateToSessions('${esc(d.encodedProjectPath)}', '${esc(d.projectPath)}')">${esc(d.projectPath)}</a>
+        <a onclick="navigateToSessions('${escAttrJs(d.encodedProjectPath)}', '${escAttrJs(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
         <span class="current">${esc(d.customTitle || d.firstPrompt || d.sessionId)}</span>
       </div>
@@ -1551,7 +1568,7 @@ async function refreshIfStale() {
   document.addEventListener('keydown', (e) => {
     const fwd = (key) => {
       e.preventDefault();
-      window.parent?.postMessage({ type: 'hub:keydown', key, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey }, '*');
+      hubPost({ type: 'hub:keydown', key, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
     };
     if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       fwd(e.key);
@@ -1569,9 +1586,16 @@ async function refreshIfStale() {
 // Hoisted out of initHubTheme so initHubProject can share it.
 const hubOrigin = () => (window.__HUB__?.url ? new URL(window.__HUB__.url).origin : null);
 
+// Every send is addressed to the hub explicitly. With targetOrigin '*' any page that
+// framed this app also received the forwarded keystrokes and navigation intents.
+function hubPost(message) {
+  const origin = hubOrigin();
+  if (origin) window.parent?.postMessage(message, origin);
+}
+
 window.hubNavigate = function hubNavigate(app, url) {
   if (!window.__HUB__?.enabled) return;
-  window.parent?.postMessage({ type: 'hub:navigate', app, url }, '*');
+  hubPost({ type: 'hub:navigate', app, url });
 };
 
 (function initHubTheme() {
@@ -1599,8 +1623,7 @@ window.hubNavigate = function hubNavigate(app, url) {
     if (t === lastTheme && ct === lastColorTheme) return;
     lastTheme = t;
     lastColorTheme = ct;
-    const origin = hubOrigin();
-    if (origin) window.parent.postMessage({ type: 'hub:theme', theme: t, colorTheme: ct }, origin);
+    hubPost({ type: 'hub:theme', theme: t, colorTheme: ct });
   }).observe(document.body, {
     attributes: true,
     attributeFilter: ['class', 'data-color-theme'],

@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js --open",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -43,6 +44,7 @@
   "license": "MIT",
   "files": [
     "server.js",
+    "lib/",
     "public/",
     "README.md",
     "LICENSE"

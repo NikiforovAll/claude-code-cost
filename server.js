@@ -7,6 +7,7 @@ const fs = require('fs');
 const { createReadStream } = require('fs');
 const { createInterface } = require('readline');
 const os = require('os');
+const { createNetGuard } = require('./lib/net-guard');
 
 // #region CLI_ARGS
 
@@ -780,6 +781,13 @@ async function getSessionDetailData(sessionId) {
 // #region EXPRESS
 
 const app = express();
+
+// Mounted before express.json() so a rejected request never buffers a body.
+const net = createNetGuard({ appName: 'Claude Code Cost Dashboard' });
+app.use(net.hostGuard);
+app.use(net.frameGuard);
+app.use(net.originGuard);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -878,25 +886,22 @@ app.post('/api/refresh', (_req, res) => {
 
 // #region STARTUP
 
-const server = app.listen(PORT, () => {
-  const actualPort = server.address().port;
+const onReady = (actualPort) => {
   console.log(`Claude Code Cost Dashboard running at http://localhost:${actualPort}`);
+  const warning = net.exposureWarning();
+  if (warning) console.log(warning);
 
   if (process.argv.includes('--open')) {
     import('open').then(mod => mod.default(`http://localhost:${actualPort}`));
   }
-});
+};
+
+const server = net.listenLoopback(app, PORT, onReady);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log(`Port ${PORT} in use, trying random port...`);
-    const fallback = app.listen(0, () => {
-      const p = fallback.address().port;
-      console.log(`Claude Code Cost Dashboard running at http://localhost:${p}`);
-      if (process.argv.includes('--open')) {
-        import('open').then(mod => mod.default(`http://localhost:${p}`));
-      }
-    });
+    net.listenLoopback(app, 0, onReady);
   } else {
     throw err;
   }
