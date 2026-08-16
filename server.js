@@ -238,15 +238,43 @@ function localDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-function buildFilledDaily(dailyCosts, start, end) {
-  const filled = [];
-  if (Object.keys(dailyCosts).length > 0) {
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const ds = localDateStr(d);
-      filled.push({ date: ds, cost: dailyCosts[ds] || 0 });
-    }
+function localHourStr(d) {
+  return `${localDateStr(d)}T${String(d.getHours()).padStart(2, '0')}`;
+}
+
+// Cost is bucketed by one of these; the key doubles as the aggregation key and the wire label.
+// An hour key extends the day key (YYYY-MM-DD -> YYYY-MM-DDTHH), so a startsWith test on a day
+// string matches either granularity.
+const BUCKETS = {
+  day: {
+    key: localDateStr,
+    floor: (d) => d.setHours(0, 0, 0, 0),
+    next: (d) => d.setDate(d.getDate() + 1),
+  },
+  hour: {
+    key: localHourStr,
+    floor: (d) => d.setMinutes(0, 0, 0),
+    next: (d) => d.setHours(d.getHours() + 1),
+  },
+};
+
+// A one-day window collapses the daily chart into a single bar, so those ranges bucket by hour.
+function rangeBucket(range) {
+  return range === 'today' || range === 1 ? 'hour' : 'day';
+}
+
+// Gap-filled so empty buckets stay visible in the chart.
+function buildCostSeries(costs, start, end, bucket) {
+  const b = BUCKETS[bucket];
+  const points = [];
+  if (Object.keys(costs).length === 0) return points;
+  const d = new Date(start);
+  b.floor(d);
+  for (; d <= end; b.next(d)) {
+    const k = b.key(d);
+    points.push({ key: k, cost: costs[k] || 0 });
   }
-  return filled;
+  return points;
 }
 
 function buildModelDistribution(modelCosts) {
@@ -515,7 +543,9 @@ async function getOverviewData(range, projectFilter) {
 
   let totalCost = 0, totalSessions = 0;
   let totalInput = 0, totalOutput = 0, totalCacheCreation = 0, totalCacheRead = 0;
-  const dailyCosts = {};
+  const bucket = rangeBucket(range);
+  const bucketKey = BUCKETS[bucket].key;
+  const bucketCosts = {};
   const modelCosts = {};
   const projectSummaries = [];
 
@@ -536,8 +566,8 @@ async function getOverviewData(range, projectFilter) {
         sessionOutput += m.outputTokens;
         sessionCacheCreation += m.cacheCreationTokens;
         sessionCacheRead += m.cacheReadTokens;
-        const day = localDateStr(new Date(m.timestamp));
-        dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
+        const k = bucketKey(new Date(m.timestamp));
+        bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
         if (m.model && !m.model.startsWith('<')) {
           modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
           projModels.add(m.model);
@@ -567,12 +597,12 @@ async function getOverviewData(range, projectFilter) {
     }
   }
 
-  const dailyStart = new Date(cutoff);
-  dailyStart.setHours(0, 0, 0, 0);
-  const filledDaily = buildFilledDaily(dailyCosts, dailyStart, now);
+  const costSeries = buildCostSeries(bucketCosts, cutoff, now, bucket);
 
   const todayStr = localDateStr(now);
-  const todayCost = dailyCosts[todayStr] || 0;
+  const todayCost = Object.entries(bucketCosts)
+    .filter(([k]) => k.startsWith(todayStr))
+    .reduce((s, [, c]) => s + c, 0);
 
   const totalInputAll = totalInput + totalCacheCreation + totalCacheRead;
   const cacheEfficiency = totalInputAll > 0 ? totalCacheRead / totalInputAll : 0;
@@ -587,7 +617,7 @@ async function getOverviewData(range, projectFilter) {
       totalInput, totalOutput, totalCacheCreation, totalCacheRead,
       cacheEfficiency,
     },
-    daily: filledDaily,
+    costSeries: { bucket, points: costSeries },
     modelDistribution,
     projects: projectSummaries.sort((a, b) => b.totalCost - a.totalCost),
   };
@@ -657,12 +687,14 @@ async function getProjectSessionsData(encodedPath, range) {
   const cutoff = rangeToCutoff(range, now);
   const projects = scanProjectDirs(cutoff);
   const proj = projects.get(encodedPath);
-  if (!proj) return { sessions: [], daily: [], modelDistribution: [] };
+  const bucket = rangeBucket(range);
+  if (!proj) return { sessions: [], costSeries: { bucket, points: [] }, modelDistribution: [] };
 
   const sessions = await loadProjectData(proj.files, pricing);
   const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
-  const dailyCosts = {};
+  const bucketKey = BUCKETS[bucket].key;
+  const bucketCosts = {};
   const modelCosts = {};
 
   for (const [, session] of sessions) {
@@ -676,8 +708,8 @@ async function getProjectSessionsData(encodedPath, range) {
     for (const m of msgs) {
       cost += m.cost; input += m.inputTokens; output += m.outputTokens;
       cacheCreation += m.cacheCreationTokens; cacheRead += m.cacheReadTokens;
-      const day = localDateStr(new Date(m.timestamp));
-      dailyCosts[day] = (dailyCosts[day] || 0) + m.cost;
+      const k = bucketKey(new Date(m.timestamp));
+      bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
       if (m.model && !m.model.startsWith('<')) {
         modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
         sessionModelCounts[m.model] = (sessionModelCounts[m.model] || 0) + 1;
@@ -707,21 +739,22 @@ async function getProjectSessionsData(encodedPath, range) {
     });
   }
 
-  let dailyStart;
-  if (cutoff) {
-    dailyStart = new Date(cutoff);
-    dailyStart.setHours(0, 0, 0, 0);
-  } else {
-    const dates = Object.keys(dailyCosts).sort();
-    dailyStart = dates.length ? new Date(dates[0] + 'T00:00:00') : now;
+  // No range means "everything", so the series starts at the first bucket that has cost.
+  let seriesStart = cutoff;
+  if (!seriesStart) {
+    const keys = Object.keys(bucketCosts).sort();
+    seriesStart = keys.length ? new Date(`${keys[0]}T00:00:00`) : now;
   }
-  const dailyEnd = now;
-  const filledDaily = buildFilledDaily(dailyCosts, dailyStart, dailyEnd);
+  const costSeries = buildCostSeries(bucketCosts, seriesStart, now, bucket);
 
   const modelDistribution = buildModelDistribution(modelCosts);
 
   const sorted = result.sort((a, b) => (b.lastTimestamp || '').localeCompare(a.lastTimestamp || ''));
-  const response = { sessions: sorted, daily: filledDaily, modelDistribution };
+  const response = {
+    sessions: sorted,
+    costSeries: { bucket, points: costSeries },
+    modelDistribution,
+  };
   setCache(cacheKey, response);
   return response;
 }

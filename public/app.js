@@ -4,7 +4,7 @@ let currentView = 'overview';
 let overviewData = null;
 let projectsData = null;
 let sessionsData = null;
-let sessionsDaily = null;
+let sessionsCostSeries = null;
 let sessionsModelDistribution = null;
 let sessionDetailData = null;
 let currentProjectPath = null;
@@ -91,9 +91,17 @@ function timeAgo(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
-function shortDate(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// Bucket keys arrive as YYYY-MM-DD (day) or YYYY-MM-DDTHH (hour), both in the server's local
+// time with no zone suffix.
+function bucketLabel(key, bucket) {
+  if (bucket === 'hour') {
+    return new Date(`${key}:00:00`).toLocaleTimeString(undefined, { hour: 'numeric' });
+  }
+  return new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function costSeriesTitle(series) {
+  return series?.bucket === 'hour' ? 'Hourly Cost' : 'Daily Cost';
 }
 
 function shortModel(model) {
@@ -255,7 +263,7 @@ function updateUrl() {
 // #region FETCH
 
 const BROWSER_CACHE_TTL = 5 * 60 * 1000; // 5 min
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 let forceRefresh = false;
 // Age of the data on screen, for the auto-refresh staleness check. A cache hit carries its own
 // timestamp forward, so a reload with a warm cache doesn't look freshly fetched.
@@ -368,7 +376,7 @@ async function fetchProjects() {
 async function fetchSessions(encodedPath) {
   const data = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?range=${dateRange}`, true);
   sessionsData = data.sessions;
-  sessionsDaily = data.daily || [];
+  sessionsCostSeries = data.costSeries;
   sessionsModelDistribution = data.modelDistribution || [];
 }
 
@@ -400,7 +408,7 @@ function renderOverview() {
   if (lastRenderHash.overview === h) return;
   lastRenderHash.overview = h;
 
-  const daily = overviewData.daily || [];
+  const costSeries = overviewData.costSeries;
   const models = overviewData.modelDistribution || [];
 
   // Return before any chart call so no canvas is touched — there are none in this markup.
@@ -451,8 +459,8 @@ function renderOverview() {
 
       <div class="charts-row">
         <div class="chart-box">
-          <div class="chart-title">Daily Cost</div>
-          <canvas id="dailyChart"></canvas>
+          <div class="chart-title">${costSeriesTitle(costSeries)}</div>
+          <canvas id="costChart"></canvas>
         </div>
         <div class="chart-box">
           <div class="chart-title">Cost by Model</div>
@@ -492,7 +500,7 @@ function renderOverview() {
 
   // Render charts after DOM is ready
   requestAnimationFrame(() => {
-    renderDailyChart(daily);
+    renderCostChart(costSeries);
     renderModelChart(models);
   });
 }
@@ -572,7 +580,7 @@ function renderSessions() {
     return;
   }
 
-  const h = JSON.stringify({ sessionsData, sessionsDaily, sessionsModelDistribution, sort: viewSort.sessions });
+  const h = JSON.stringify({ sessionsData, sessionsCostSeries, sessionsModelDistribution, sort: viewSort.sessions });
   if (lastRenderHash.sessions === h) return;
   lastRenderHash.sessions = h;
 
@@ -597,8 +605,8 @@ function renderSessions() {
       </div>
       <div class="charts-row" style="grid-template-columns:3fr 2fr auto">
         <div class="chart-box">
-          <div class="chart-title">Daily Cost</div>
-          <canvas id="sessionsDailyChart"></canvas>
+          <div class="chart-title">${costSeriesTitle(sessionsCostSeries)}</div>
+          <canvas id="sessionsCostChart"></canvas>
         </div>
         <div class="chart-box">
           <div class="chart-title">Cost by Model</div>
@@ -642,7 +650,7 @@ function renderSessions() {
     </div>`;
 
   requestAnimationFrame(() => {
-    renderDailyChart(sessionsDaily || [], 'sessionsDailyChart', 'sessionsDaily');
+    renderCostChart(sessionsCostSeries, 'sessionsCostChart', 'sessionsCost');
     renderModelChart(sessionsModelDistribution || [], 'sessionsModelChart', 'sessionsModel');
   });
 }
@@ -838,9 +846,10 @@ function destroyChart(id) {
   }
 }
 
-function renderDailyChart(daily, canvasId = 'dailyChart', chartKey = 'daily') {
+function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost') {
+  const points = series?.points;
   const canvas = document.getElementById(canvasId);
-  if (!canvas || !daily?.length) return;
+  if (!canvas || !points?.length) return;
   destroyChart(chartKey);
 
   const c = getChartColors();
@@ -849,11 +858,11 @@ function renderDailyChart(daily, canvasId = 'dailyChart', chartKey = 'daily') {
   charts[chartKey] = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: daily.map((d) => shortDate(d.date)),
+      labels: points.map((p) => bucketLabel(p.key, series.bucket)),
       datasets: [
         {
-          label: 'Daily Cost',
-          data: daily.map((d) => d.cost),
+          label: costSeriesTitle(series),
+          data: points.map((p) => p.cost),
           backgroundColor: c.chartFill,
           borderColor: c.accent,
           borderWidth: 1.5,
