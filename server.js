@@ -279,7 +279,7 @@ function buildCostSeries(costs, start, end, bucket) {
 
 function buildModelDistribution(modelCosts) {
   return Object.entries(modelCosts)
-    .filter(([model, cost]) => cost > 0 && !model.startsWith('<'))
+    .filter(([model, cost]) => cost > 0 && isRealModel(model))
     .map(([model, cost]) => ({ model, cost }))
     .sort((a, b) => b.cost - a.cost);
 }
@@ -365,6 +365,11 @@ function scanSubagentDir(sessionDir) {
     }
   } catch { /* dir doesn't exist or unreadable */ }
   return result;
+}
+
+// `<synthetic>` and friends are Claude Code bookkeeping entries, not models the user chose.
+function isRealModel(model) {
+  return !!model && !model.startsWith('<');
 }
 
 function mostFrequentModel(counts) {
@@ -461,7 +466,7 @@ async function loadProjectData(files, pricing) {
       session.outputTokens += usage.output_tokens || 0;
       session.cacheCreationTokens += (usage.cache_creation_input_tokens || 0);
       session.cacheReadTokens += (usage.cache_read_input_tokens || 0);
-      session.models.add(model);
+      if (isRealModel(model)) session.models.add(model);
 
       if (!session.firstTimestamp || ts < session.firstTimestamp) session.firstTimestamp = ts;
       if (!session.lastTimestamp || ts > session.lastTimestamp) session.lastTimestamp = ts;
@@ -500,7 +505,7 @@ async function loadProjectData(files, pricing) {
         session.outputTokens += sa.outputTokens;
         session.cacheCreationTokens += sa.cacheCreationTokens;
         session.cacheReadTokens += sa.cacheReadTokens;
-        for (const m of sa.models) session.models.add(m);
+        for (const m of sa.models) if (isRealModel(m)) session.models.add(m);
         session.messages.push({
           timestamp: sa.firstTimestamp || session.firstTimestamp,
           model: sa.models[0] || 'unknown',
@@ -529,6 +534,18 @@ function rangeToCutoff(range, now) {
   const c = new Date(now);
   c.setDate(c.getDate() - range);
   return c;
+}
+
+function summarizeMessages(msgs) {
+  const sum = { messageCount: msgs.length, totalCost: 0, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
+  for (const m of msgs) {
+    sum.totalCost += m.cost;
+    sum.inputTokens += m.inputTokens;
+    sum.outputTokens += m.outputTokens;
+    sum.cacheCreationTokens += m.cacheCreationTokens;
+    sum.cacheReadTokens += m.cacheReadTokens;
+  }
+  return sum;
 }
 
 async function getOverviewData(range, projectFilter) {
@@ -568,7 +585,7 @@ async function getOverviewData(range, projectFilter) {
         sessionCacheRead += m.cacheReadTokens;
         const k = bucketKey(new Date(m.timestamp));
         bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
-        if (m.model && !m.model.startsWith('<')) {
+        if (isRealModel(m.model)) {
           modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
           projModels.add(m.model);
         }
@@ -652,7 +669,7 @@ async function getProjectsData(range, projectFilter) {
       totalCost += cost;
       sessionCount++;
       for (const m of msgs) {
-        if (m.model && !m.model.startsWith('<')) {
+        if (isRealModel(m.model)) {
           projModelCounts[m.model] = (projModelCounts[m.model] || 0) + 1;
         }
       }
@@ -703,14 +720,12 @@ async function getProjectSessionsData(encodedPath, range) {
       : session.messages;
     if (msgs.length === 0) continue;
 
-    let cost = 0, input = 0, output = 0, cacheCreation = 0, cacheRead = 0;
+    const sum = summarizeMessages(msgs);
     const sessionModelCounts = {};
     for (const m of msgs) {
-      cost += m.cost; input += m.inputTokens; output += m.outputTokens;
-      cacheCreation += m.cacheCreationTokens; cacheRead += m.cacheReadTokens;
       const k = bucketKey(new Date(m.timestamp));
       bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
-      if (m.model && !m.model.startsWith('<')) {
+      if (isRealModel(m.model)) {
         modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
         sessionModelCounts[m.model] = (sessionModelCounts[m.model] || 0) + 1;
       }
@@ -723,13 +738,8 @@ async function getProjectSessionsData(encodedPath, range) {
     result.push({
       sessionId: session.sessionId,
       customTitle: session.customTitle,
-      totalCost: cost,
-      inputTokens: input,
-      outputTokens: output,
-      cacheCreationTokens: cacheCreation,
-      cacheReadTokens: cacheRead,
-      totalTokens: input + output + cacheCreation + cacheRead,
-      messageCount: msgs.length,
+      ...sum,
+      totalTokens: sum.inputTokens + sum.outputTokens + sum.cacheCreationTokens + sum.cacheReadTokens,
       models: [...session.models],
       primaryModel,
       firstPrompt: session.firstPrompt,
@@ -757,6 +767,23 @@ async function getProjectSessionsData(encodedPath, range) {
   };
   setCache(cacheKey, response);
   return response;
+}
+
+// The detail view is always the whole session, unlike every other view. `inRange`/`today` carry
+// the slices the UI needs to reconcile itself with the range-scoped session row that linked here,
+// instead of silently disagreeing with it. They are derived outside the cache so switching ranges
+// does not re-parse the session's JSONL.
+function withSessionSlices(base, range) {
+  const now = new Date();
+  const cutoff = rangeToCutoff(range, now);
+  const sliceFrom = (from) => summarizeMessages(base.messages.filter(m => m.timestamp >= from));
+  const inRange = cutoff ? sliceFrom(cutoff.toISOString()) : null;
+  return {
+    ...base,
+    range,
+    inRange,
+    today: range === 'today' ? inRange : sliceFrom(rangeToCutoff('today', now).toISOString()),
+  };
 }
 
 async function getSessionDetailData(sessionId) {
@@ -885,9 +912,9 @@ app.get('/api/projects/:path/sessions', async (req, res) => {
 
 app.get('/api/sessions/:id', async (req, res) => {
   try {
-    const data = await getSessionDetailData(req.params.id);
-    if (!data) return res.status(404).json({ error: 'Session not found' });
-    res.json(data);
+    const base = await getSessionDetailData(req.params.id);
+    if (!base) return res.status(404).json({ error: 'Session not found' });
+    res.json(withSessionSlices(base, parseRange(req.query.range)));
   } catch (err) {
     console.error('[API] session detail error:', err);
     res.status(500).json({ error: 'Failed to load session detail' });

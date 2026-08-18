@@ -226,6 +226,10 @@ function rangeLabel(r) {
   return r === 'today' ? 'today' : `${r} days`;
 }
 
+function rangeScopeLabel(r) {
+  return r === 'today' ? rangeLabel(r) : `last ${rangeLabel(r)}`;
+}
+
 function loadSort() {
   for (const view of Object.keys(DEFAULT_SORT)) {
     const raw = localStorage.getItem(`cc-cost:sort:${view}`);
@@ -381,7 +385,7 @@ async function fetchSessions(encodedPath) {
 }
 
 async function fetchSessionDetail(sessionId) {
-  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}`, true);
+  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}?range=${dateRange}`, true);
   // Populate project context when opening via deep link (no project in URL)
   if (sessionDetailData && !currentProjectPath) {
     currentProjectPath = sessionDetailData.encodedProjectPath;
@@ -687,7 +691,7 @@ function renderDetail() {
       <div class="detail-header">
         <div class="detail-stat">
           <div class="detail-label">Total Cost</div>
-          <div class="detail-value cost">${formatCost(d.totalCost)}</div>
+          <div class="detail-value cost">${formatCost(d.totalCost)}<span class="detail-label detail-scope">all time</span></div>
         </div>
         <div class="detail-stat">
           <div class="detail-label">Input</div>
@@ -707,16 +711,15 @@ function renderDetail() {
         </div>
         <div class="detail-stat">
           <div class="detail-label">Messages</div>
-          <div class="detail-value">${d.messages.length}</div>
+          <div class="detail-value">${d.messages.length}<span class="detail-label detail-scope">all time</span></div>
         </div>
         <div class="detail-stat">
           <div class="detail-label">Models</div>
-          <div class="detail-value">${d.models
-            .map((m) => shortModel(m))
-            .filter(Boolean)
-            .join(', ')}</div>
+          <div class="detail-value">${esc(d.models.map((m) => shortModel(m)).join(', '))}</div>
         </div>
       </div>
+
+      ${detailRangeNote(d)}
 
       <div class="charts-row" style="margin-bottom:20px">
         <div class="chart-box">
@@ -753,6 +756,23 @@ function renderDetail() {
     renderCumulativeChart(parentMessages);
     renderTokenBreakdownChart(parentMessages);
   });
+}
+
+// The session row that links here is scoped to the active range, so a session older than the
+// range would otherwise show larger numbers here with no explanation.
+function detailRangeNote(d) {
+  const all = d.messages.length;
+  const slice = (label, s) =>
+    `<span class="scope-label">${esc(label)}</span> <strong>${formatCost(s.totalCost)}</strong> / ${s.messageCount} msg`;
+  // A slice worth showing is a real subset: neither empty nor the whole session.
+  const worthShowing = (s) => s && s.messageCount > 0 && s.messageCount < all;
+  const parts = [];
+  if (worthShowing(d.inRange)) parts.push(slice(rangeScopeLabel(d.range), d.inRange));
+  if (worthShowing(d.today) && d.today.messageCount !== d.inRange?.messageCount) {
+    parts.push(slice('today', d.today));
+  }
+  if (!parts.length) return '';
+  return `<div class="detail-range-note">Totals above are all-time &middot; ${parts.join(' &middot; ')}</div>`;
 }
 
 function buildMessageRowsWithSubagents(d) {

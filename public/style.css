@@ -639,6 +639,32 @@ body {
   color: var(--accent-text);
 }
 
+/* Rides on .detail-label for the small-muted-caption look; only the offset differs. */
+.detail-stat .detail-scope {
+  margin-left: 5px;
+  font-weight: 400;
+}
+
+.detail-header:has(+ .detail-range-note) {
+  margin-bottom: 8px;
+}
+
+.detail-range-note {
+  margin: 0 0 18px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.detail-range-note .scope-label {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.detail-range-note strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 .messages-table {
   width: 100%;
   border-collapse: collapse;
