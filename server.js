@@ -263,16 +263,25 @@ function rangeBucket(range) {
   return range === 'today' || range === 1 ? 'hour' : 'day';
 }
 
-// Gap-filled so empty buckets stay visible in the chart.
-function buildCostSeries(costs, start, end, bucket) {
+// Non-real (synthetic) models group under 'other' so the series still sums to the true
+// bucket total, unlike modelDistribution which drops them entirely.
+function addBucketModelCost(acc, key, model, cost) {
+  const mk = isRealModel(model) ? model : 'other';
+  (acc[key] ||= {})[mk] = (acc[key][mk] || 0) + cost;
+}
+
+// Gap-filled so empty buckets stay visible in the chart. The bucket total is derived from
+// the per-model map, so the two can never disagree.
+function buildCostSeries(modelCostsByBucket, start, end, bucket) {
   const b = BUCKETS[bucket];
   const points = [];
-  if (Object.keys(costs).length === 0) return points;
+  if (Object.keys(modelCostsByBucket).length === 0) return points;
   const d = new Date(start);
   b.floor(d);
   for (; d <= end; b.next(d)) {
     const k = b.key(d);
-    points.push({ key: k, cost: costs[k] || 0 });
+    const byModel = modelCostsByBucket[k] || {};
+    points.push({ key: k, cost: Object.values(byModel).reduce((s, v) => s + v, 0), byModel });
   }
   return points;
 }
@@ -562,7 +571,7 @@ async function getOverviewData(range, projectFilter) {
   let totalInput = 0, totalOutput = 0, totalCacheCreation = 0, totalCacheRead = 0;
   const bucket = rangeBucket(range);
   const bucketKey = BUCKETS[bucket].key;
-  const bucketCosts = {};
+  const bucketModelCosts = {};
   const modelCosts = {};
   const projectSummaries = [];
 
@@ -584,7 +593,7 @@ async function getOverviewData(range, projectFilter) {
         sessionCacheCreation += m.cacheCreationTokens;
         sessionCacheRead += m.cacheReadTokens;
         const k = bucketKey(new Date(m.timestamp));
-        bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
+        addBucketModelCost(bucketModelCosts, k, m.model, m.cost);
         if (isRealModel(m.model)) {
           modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
           projModels.add(m.model);
@@ -614,12 +623,12 @@ async function getOverviewData(range, projectFilter) {
     }
   }
 
-  const costSeries = buildCostSeries(bucketCosts, cutoff, now, bucket);
+  const costSeries = buildCostSeries(bucketModelCosts, cutoff, now, bucket);
 
   const todayStr = localDateStr(now);
-  const todayCost = Object.entries(bucketCosts)
-    .filter(([k]) => k.startsWith(todayStr))
-    .reduce((s, [, c]) => s + c, 0);
+  const todayCost = costSeries
+    .filter((p) => p.key.startsWith(todayStr))
+    .reduce((s, p) => s + p.cost, 0);
 
   const totalInputAll = totalInput + totalCacheCreation + totalCacheRead;
   const cacheEfficiency = totalInputAll > 0 ? totalCacheRead / totalInputAll : 0;
@@ -711,7 +720,7 @@ async function getProjectSessionsData(encodedPath, range) {
   const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
   const bucketKey = BUCKETS[bucket].key;
-  const bucketCosts = {};
+  const bucketModelCosts = {};
   const modelCosts = {};
 
   for (const [, session] of sessions) {
@@ -724,7 +733,7 @@ async function getProjectSessionsData(encodedPath, range) {
     const sessionModelCounts = {};
     for (const m of msgs) {
       const k = bucketKey(new Date(m.timestamp));
-      bucketCosts[k] = (bucketCosts[k] || 0) + m.cost;
+      addBucketModelCost(bucketModelCosts, k, m.model, m.cost);
       if (isRealModel(m.model)) {
         modelCosts[m.model] = (modelCosts[m.model] || 0) + m.cost;
         sessionModelCounts[m.model] = (sessionModelCounts[m.model] || 0) + 1;
@@ -752,10 +761,10 @@ async function getProjectSessionsData(encodedPath, range) {
   // No range means "everything", so the series starts at the first bucket that has cost.
   let seriesStart = cutoff;
   if (!seriesStart) {
-    const keys = Object.keys(bucketCosts).sort();
+    const keys = Object.keys(bucketModelCosts).sort();
     seriesStart = keys.length ? new Date(`${keys[0]}T00:00:00`) : now;
   }
-  const costSeries = buildCostSeries(bucketCosts, seriesStart, now, bucket);
+  const costSeries = buildCostSeries(bucketModelCosts, seriesStart, now, bucket);
 
   const modelDistribution = buildModelDistribution(modelCosts);
 

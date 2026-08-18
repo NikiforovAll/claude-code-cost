@@ -504,7 +504,7 @@ function renderOverview() {
 
   // Render charts after DOM is ready
   requestAnimationFrame(() => {
-    renderCostChart(costSeries);
+    renderCostChart(costSeries, 'costChart', 'cost', models);
     renderModelChart(models);
   });
 }
@@ -654,7 +654,7 @@ function renderSessions() {
     </div>`;
 
   requestAnimationFrame(() => {
-    renderCostChart(sessionsCostSeries, 'sessionsCostChart', 'sessionsCost');
+    renderCostChart(sessionsCostSeries, 'sessionsCostChart', 'sessionsCost', sessionsModelDistribution || []);
     renderModelChart(sessionsModelDistribution || [], 'sessionsModelChart', 'sessionsModel');
   });
 }
@@ -822,6 +822,11 @@ function getChartColors() {
   };
 }
 
+// Single source of the series palette so per-model colors match across charts.
+function chartPalette(c) {
+  return [c.chart1, c.chart2, c.chart3, c.chart4, c.chart5, c.chart6];
+}
+
 // Translucent fill from a hex color so chart bars read as a quiet wash, not a solid block.
 function hexToRgba(hex, alpha) {
   const h = hex.replace('#', '');
@@ -866,7 +871,7 @@ function destroyChart(id) {
   }
 }
 
-function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost') {
+function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost', distribution = []) {
   const points = series?.points;
   const canvas = document.getElementById(canvasId);
   if (!canvas || !points?.length) return;
@@ -875,20 +880,32 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost') {
   const c = getChartColors();
   const defaults = chartDefaults();
 
+  // Stack order follows modelDistribution so segment colors line up with the Cost by Model
+  // chart rendered next to it. 'other' (synthetic models) is absent from the distribution
+  // and lands at the end.
+  const present = new Set();
+  for (const p of points) {
+    for (const m in p.byModel) if (p.byModel[m] > 0) present.add(m);
+  }
+  const models = distribution.filter((d) => present.has(d.model)).map((d) => d.model);
+  for (const m of present) if (!models.includes(m)) models.push(m);
+  const palette = chartPalette(c);
+
+  const datasets = models.map((m, i) => ({
+    label: shortModel(m),
+    data: points.map((p) => p.byModel?.[m] || 0),
+    backgroundColor: hexToRgba(palette[i % palette.length], 0.5),
+    borderColor: palette[i % palette.length],
+    borderWidth: 1.5,
+    borderRadius: 2,
+    stack: 'cost',
+  }));
+
   charts[chartKey] = new Chart(canvas, {
     type: 'bar',
     data: {
       labels: points.map((p) => bucketLabel(p.key, series.bucket)),
-      datasets: [
-        {
-          label: costSeriesTitle(series),
-          data: points.map((p) => p.cost),
-          backgroundColor: c.chartFill,
-          borderColor: c.accent,
-          borderWidth: 1.5,
-          borderRadius: 3,
-        },
-      ],
+      datasets,
     },
     options: {
       ...defaults,
@@ -896,6 +913,12 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost') {
       events: [],
       plugins: {
         ...defaults.plugins,
+        // events: [] disables tooltips, so the legend is the only place segment names show.
+        legend: {
+          display: models.length > 1,
+          position: 'bottom',
+          labels: { color: c.text, font: { size: 9 }, boxWidth: 8, boxHeight: 8 },
+        },
         tooltip: {
           ...defaults.plugins.tooltip,
           callbacks: { label: (ctx) => `$${ctx.parsed.y.toFixed(2)}` },
@@ -903,8 +926,10 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost') {
       },
       scales: {
         ...defaults.scales,
+        x: { ...defaults.scales.x, stacked: true },
         y: {
           ...defaults.scales.y,
+          stacked: true,
           ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
         },
       },
@@ -918,7 +943,7 @@ function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
   destroyChart(chartKey);
 
   const colors = getChartColors();
-  const palette = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.chart5, colors.chart6];
+  const palette = chartPalette(colors);
   const defaults = chartDefaults();
   const total = models.reduce((s, m) => s + m.cost, 0);
 
