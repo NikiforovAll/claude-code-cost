@@ -24,7 +24,9 @@ const DEFAULT_SORT = {
   sessions: { field: 'lastTimestamp', order: 'desc' },
 };
 const viewSort = structuredClone(DEFAULT_SORT);
-let dateRange = 3;
+// A tagged union: a rolling preset the server recomputes per request, or a concrete window of
+// two local dates. Persisted as JSON under cc-cost:range (see loadDateRange).
+let dateRange = { kind: 'preset', value: '3' };
 const charts = {};
 let lastRenderHash = {};
 let navCounter = 0;
@@ -98,6 +100,43 @@ function bucketLabel(key, bucket) {
     return new Date(`${key}:00:00`).toLocaleTimeString(undefined, { hour: 'numeric' });
   }
   return new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// Local calendar dates as YYYY-MM-DD: the shape the range API takes, comparable with < and >.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayIso() {
+  return isoDate(new Date());
+}
+
+function isoParts(iso) {
+  return iso.split('-').map(Number);
+}
+
+function isoShift(iso, days) {
+  const [y, m, d] = isoParts(iso);
+  return isoDate(new Date(y, m - 1, d + days));
+}
+
+// Inclusive, so a single day counts as 1. Midday avoids a DST shift landing on a boundary.
+function isoDayCount(from, to) {
+  const [ay, am, ad] = isoParts(from);
+  const [by, bm, bd] = isoParts(to);
+  return Math.round((new Date(by, bm - 1, bd, 12) - new Date(ay, am - 1, ad, 12)) / 86400000) + 1;
+}
+
+// "AUG 12", carrying a two-digit year only when the date falls outside the current one: "DEC 28 '25".
+function isoDayLabel(iso) {
+  const [y] = isoParts(iso);
+  const yearTag = y === new Date().getFullYear() ? '' : ` '${String(y).slice(2)}`;
+  const dayLabel = new Date(`${iso}T00:00:00`)
+    .toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    .toUpperCase();
+  return `${dayLabel}${yearTag}`;
 }
 
 function costSeriesTitle(series) {
@@ -189,15 +228,58 @@ function getUrlState() {
   };
 }
 
+const DEFAULT_RANGE_PRESET = '3';
+
+function presetRange(value) {
+  return { kind: 'preset', value: String(value) };
+}
+
+function presetDef(value) {
+  return RANGE_PRESETS.find((p) => p.value === String(value));
+}
+
+function isPresetValue(v) {
+  return !!presetDef(v);
+}
+
+function isCustomRange(r) {
+  return r?.kind === 'custom';
+}
+
+// '1 DAY' is gone: under calendar semantics it would have duplicated TODAY, so the rolling day it
+// used to mean is now '24h'. Without this, a stored "1" stops being a preset value and silently
+// lands on the default instead of on the shortcut that kept its meaning.
+function migrateStoredPreset(value) {
+  const s = String(value);
+  return s === '1' ? '24h' : s;
+}
+
+// Reads the JSON tagged union and the legacy bare "3" / "today" scalar that predates it: the key is
+// a preference, so clearLocalCache() never evicts it and old values outlive any cache clear.
+// Anything unrecognized returns null, which lands on the default preset.
+function parseStoredRange(raw) {
+  if (!raw) return null;
+  let v;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    v = raw; // the legacy bare 'today' is not valid JSON
+  }
+  if (v?.kind === 'custom') {
+    return ISO_DATE_RE.test(v.from) && ISO_DATE_RE.test(v.to) && v.from <= v.to
+      ? { kind: 'custom', from: v.from, to: v.to }
+      : null;
+  }
+  const s = migrateStoredPreset(v?.kind === 'preset' ? v.value : v);
+  return isPresetValue(s) ? presetRange(s) : null;
+}
+
 function loadDateRange() {
-  const v = localStorage.getItem('cc-cost:range');
-  if (!v) return 3;
-  if (v === 'today') return 'today';
-  return parseInt(v, 10) || 3;
+  return parseStoredRange(localStorage.getItem('cc-cost:range')) || presetRange(DEFAULT_RANGE_PRESET);
 }
 
 function saveDateRange(val) {
-  localStorage.setItem('cc-cost:range', String(val));
+  localStorage.setItem('cc-cost:range', JSON.stringify(val));
 }
 
 function loadScope() {
@@ -222,12 +304,79 @@ function saveScope() {
   }
 }
 
-function rangeLabel(r) {
-  return r === 'today' ? 'today' : `${r} days`;
+// The range reaches these labels either as the client's tagged union or as the shape the server
+// echoes back on the session detail payload: 'today', N days, null for all time, or a bare
+// { from, to } window.
+function normalizeRange(r) {
+  if (r == null) return null;
+  if (typeof r === 'object') {
+    if (r.kind === 'preset' && isPresetValue(r.value)) return presetRange(r.value);
+    if (r.from && r.to) return { kind: 'custom', from: r.from, to: r.to };
+    return null;
+  }
+  if (isPresetValue(r)) return presetRange(r);
+  // A legacy `range=1` from a bookmarked URL: the server reads it as one calendar day, which is
+  // today. Without this it is a positive integer that names no preset, so it would label as
+  // "all time" — the shape normalizeRange returns for something it does not recognize.
+  if (String(r) === '1') return presetRange('today');
+  const n = Number(r);
+  return Number.isFinite(n) && n > 0 ? presetRange(n) : null;
 }
 
-function rangeScopeLabel(r) {
-  return r === 'today' ? rangeLabel(r) : `last ${rangeLabel(r)}`;
+// "AUG 1 - AUG 12"; a single-day window is just "AUG 12".
+function rangeSpanLabel(r) {
+  return r.from === r.to ? isoDayLabel(r.to) : `${isoDayLabel(r.from)} - ${isoDayLabel(r.to)}`;
+}
+
+// Every label variant is the same four-way classification of the range — all time, a custom window,
+// today, a rolling preset — with one phrase per class, so only the phrasing lives in the callers:
+// presets keep their rolling phrasing ("last 7 days"), while a custom window is named by its dates,
+// where a "last" prefix would be nonsense. The rolling preset measured in hours must never be
+// pluralized as days, and the empty-state article only fits the rolling presets.
+function rangeText(r, prefix = {}) {
+  const n = normalizeRange(r);
+  const kind = !n ? 'all' : n.kind === 'custom' ? 'custom' : n.value === 'today' ? 'today' : 'rolling';
+  const base =
+    kind === 'all'
+      ? 'all time'
+      : kind === 'custom'
+        ? rangeSpanLabel(n)
+        : kind === 'today'
+          ? 'today'
+          : n.value === '24h'
+            ? '24 hours'
+            : `${n.value} days`;
+  return (prefix[kind] || '') + base;
+}
+
+const rangeLabel = (r) => rangeText(r);
+const rangeScopeLabel = (r) => rangeText(r, { rolling: 'last ' });
+const rangeInLabel = (r) => rangeText(r, { all: 'in ', custom: 'in ', rolling: 'in the last ' });
+
+// Uppercase, for the picker trigger: the preset's own name, or the window's dates.
+const rangeTriggerLabel = (r) => {
+  const n = normalizeRange(r) || presetRange(DEFAULT_RANGE_PRESET);
+  if (n.kind === 'custom') return rangeSpanLabel(n);
+  const def = presetDef(n.value);
+  return (def ? def.label : rangeText(n)).toUpperCase();
+};
+
+// The overview's window card: "3 Days" for an N-day preset, the preset's own name for a clock preset
+// ("Last 24h"), the date span for a custom window. '1 Year' is the one name that does not fit the
+// card, hence cardLabel.
+const rangeCardLabel = (r) => {
+  const n = normalizeRange(r);
+  if (!n) return 'All Time';
+  if (n.kind === 'custom') return rangeSpanLabel(n);
+  const def = presetDef(n.value);
+  return def ? def.cardLabel || def.label : `${n.value} Days`;
+};
+
+// That card duplicates the Today card when the window is exactly today, so it is dropped instead.
+function isTodayOnlyRange(r) {
+  const n = normalizeRange(r);
+  if (!n) return false;
+  return n.kind === 'custom' ? n.from === n.to && n.to === todayIso() : n.value === 'today';
 }
 
 function loadSort() {
@@ -267,7 +416,7 @@ function updateUrl() {
 // #region FETCH
 
 const BROWSER_CACHE_TTL = 5 * 60 * 1000; // 5 min
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 6;
 let forceRefresh = false;
 // Age of the data on screen, for the auto-refresh staleness check. A cache hit carries its own
 // timestamp forward, so a reload with a warm cache doesn't look freshly fetched.
@@ -348,8 +497,14 @@ function scopeParam() {
   return scopeProject ? `&project=${encodeURIComponent(scopeProject)}` : '';
 }
 
+// Presets stay on the rolling `range` param, recomputed server-side; a custom window sends its two
+// local dates, which take precedence over `range`. Every range-consuming fetch goes through this.
+function rangeParams(r = dateRange) {
+  return isCustomRange(r) ? `from=${r.from}&to=${r.to}` : `range=${encodeURIComponent(r.value)}`;
+}
+
 async function fetchOverview() {
-  overviewData = await fetchJSON(`/api/overview?range=${dateRange}${scopeParam()}`);
+  overviewData = await fetchJSON(`/api/overview?${rangeParams()}${scopeParam()}`);
 }
 
 // Fire-and-forget label upgrade: /api/projects/:path/sessions carries no project name, so ask
@@ -357,7 +512,7 @@ async function fetchOverview() {
 async function resolveScopeName() {
   const target = scopeProject;
   try {
-    const rows = await fetchJSON(`/api/projects?range=${dateRange}${scopeParam()}`);
+    const rows = await fetchJSON(`/api/projects?${rangeParams()}${scopeParam()}`);
     const name = rows?.[0]?.encodedPath === target ? rows[0].name : null;
     if (!name || scopeProject !== target) return;
     scopeProjectName = name;
@@ -374,18 +529,18 @@ async function resolveScopeName() {
 }
 
 async function fetchProjects() {
-  projectsData = await fetchJSON(`/api/projects?range=${dateRange}${scopeParam()}`);
+  projectsData = await fetchJSON(`/api/projects?${rangeParams()}${scopeParam()}`);
 }
 
 async function fetchSessions(encodedPath) {
-  const data = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?range=${dateRange}`, true);
+  const data = await fetchJSON(`/api/projects/${encodeURIComponent(encodedPath)}/sessions?${rangeParams()}`, true);
   sessionsData = data.sessions;
   sessionsCostSeries = data.costSeries;
   sessionsModelDistribution = data.modelDistribution || [];
 }
 
 async function fetchSessionDetail(sessionId) {
-  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}?range=${dateRange}`, true);
+  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}?${rangeParams()}`, true);
   // Populate project context when opening via deep link (no project in URL)
   if (sessionDetailData && !currentProjectPath) {
     currentProjectPath = sessionDetailData.encodedProjectPath;
@@ -421,7 +576,7 @@ function renderOverview() {
       ${scopeIndicator()}
       <div class="empty-state">
         <div class="empty-icon">$</div>
-        <div>No usage for ${esc(scopeProjectName || scopeProject)} in the last ${rangeLabel(dateRange)}</div>
+        <div>No usage for ${esc(scopeProjectName || scopeProject)} ${esc(rangeInLabel(dateRange))}</div>
         <div>Clear the project scope to see everything.</div>
       </div>
     </div>`;
@@ -432,16 +587,23 @@ function renderOverview() {
     <div class="dashboard-content">
       ${scopeIndicator()}
       <div class="cards-row">
-        <div class="stat-card">
-          <div class="card-label">Today</div>
-          <div class="card-value cost">${formatCost(s.todayCost)}</div>
-        </div>
         ${
-          dateRange === 'today'
+          // Null rather than 0 when the window ends before today: a zero here would read as
+          // "nothing spent today" instead of "today is outside the selected window".
+          s.todayCost == null
             ? ''
             : `
         <div class="stat-card">
-          <div class="card-label">${dateRange} Days</div>
+          <div class="card-label">Today</div>
+          <div class="card-value cost">${formatCost(s.todayCost)}</div>
+        </div>`
+        }
+        ${
+          isTodayOnlyRange(dateRange)
+            ? ''
+            : `
+        <div class="stat-card">
+          <div class="card-label">${esc(rangeCardLabel(dateRange))}</div>
           <div class="card-value cost">${formatCost(s.totalCost)}</div>
         </div>`
         }
@@ -534,7 +696,7 @@ function renderProjects() {
       <div class="empty-icon">$</div>
       ${
         scopeProject
-          ? `<div>No usage for ${esc(scopeProjectName || scopeProject)} in the last ${rangeLabel(dateRange)}</div>
+          ? `<div>No usage for ${esc(scopeProjectName || scopeProject)} ${esc(rangeInLabel(dateRange))}</div>
              <div>Clear the project scope to see everything.</div>`
           : `<div>No project data found</div>
              <div>Make sure Claude Code session files exist in ~/.claude/projects/</div>`
@@ -1179,6 +1341,326 @@ function setColorTheme(id) {
 
 // #endregion
 
+// #region DATE_PICKER
+
+// Presets are sticky: what is stored is the preset, and the server recomputes its rolling window on
+// every request. `days` only previews the span inside the calendar.
+const RANGE_PRESETS = [
+  { value: 'today', label: 'Today', days: 0 },
+  { value: '24h', label: 'Last 24h', days: 1 },
+  { value: '3', label: '3 Days', days: 3 },
+  { value: '7', label: '7 Days', days: 7 },
+  { value: '30', label: '30 Days', days: 30 },
+  { value: '90', label: '90 Days', days: 90 },
+  { value: '365', label: '1 Year', days: 365, cardLabel: '365 Days' },
+];
+const RANGE_DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// Two months do not fit a narrow window, so below this the calendar collapses to one. Kept in step
+// with the same breakpoint in style.css.
+const ONE_MONTH_QUERY = '(max-width: 760px)';
+// One live MediaQueryList: matchMedia() hands back a new object each call, so add/removeEventListener
+// have to share this one or the listener never comes off.
+const oneMonthMql = window.matchMedia(ONE_MONTH_QUERY);
+const RANGE_ARROWS = {
+  prev: '<path d="M6.5 1L2.5 5l4 4"/>',
+  next: '<path d="M3.5 1l4 4-4 4"/>',
+};
+
+// Non-null only while the popover is open — it is both the draft and the open flag. `picking` is
+// which end the next day click lands on; `hover` previews the span before the second click.
+let rangeDraft = null;
+
+function isRangePickerOpen() {
+  return !!rangeDraft;
+}
+
+function oneMonthMode() {
+  return oneMonthMql.matches;
+}
+
+// What a preset covers, for highlighting only. '24h' is named here because its span is not a day
+// count: it straddles the two calendar days a rolling day touches. Everything else is the last N
+// calendar days ending today, which is now exactly the window the server fetches — 'today' included,
+// since a span of one day or less is today itself.
+function rangePresetSpan(value) {
+  const today = todayIso();
+  if (value === '24h') return { from: isoShift(today, -1), to: today };
+  const days = Number(value) || 1;
+  return { from: days <= 1 ? today : isoShift(today, -(days - 1)), to: today };
+}
+
+function buildRangePresets() {
+  const host = document.getElementById('rangePresets');
+  if (!host) return;
+  for (const p of RANGE_PRESETS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'range-preset';
+    b.dataset.value = p.value;
+    b.textContent = p.label;
+    // A shortcut is one click, like the dropdown it replaces: apply and close, no Apply button.
+    b.addEventListener('click', () => {
+      closeRangePicker();
+      applyRange(presetRange(p.value));
+    });
+    host.appendChild(b);
+  }
+}
+
+function renderRangeTrigger() {
+  const el = document.getElementById('rangeTriggerLabel');
+  if (el) el.textContent = rangeTriggerLabel(dateRange);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from topbar markup
+function toggleRangePicker(e) {
+  e?.stopPropagation();
+  if (isRangePickerOpen()) closeRangePicker();
+  else openRangePicker();
+}
+
+function openRangePicker() {
+  const applied = normalizeRange(dateRange) || presetRange(DEFAULT_RANGE_PRESET);
+  const span = applied.kind === 'custom' ? { from: applied.from, to: applied.to } : rangePresetSpan(applied.value);
+  // The left pane shows the month before the window's end, so today sits in the right one; with a
+  // single month it is that month itself.
+  const [ay, am] = isoParts(span.to);
+  const first = new Date(ay, am - 1 - (oneMonthMode() ? 0 : 1), 1);
+  rangeDraft = {
+    from: span.from,
+    to: span.to,
+    preset: applied.kind === 'custom' ? null : applied.value,
+    picking: 'from',
+    hover: null,
+    month: { y: first.getFullYear(), m: first.getMonth() },
+  };
+  document.getElementById('rangePop').classList.add('open');
+  document.getElementById('rangeTrigger').classList.add('on');
+  // Capture phase: a day click re-renders the grid and detaches its own button, so by the bubble
+  // phase the target is no longer inside #rangePicker and would read as an outside click.
+  document.addEventListener('click', onRangePickerOutsideClick, true);
+  const months = document.getElementById('rangeMonths');
+  months.addEventListener('click', onRangeDayClick);
+  months.addEventListener('mouseover', onRangeDayHover);
+  oneMonthMql.addEventListener('change', renderRangePicker);
+  renderRangePicker();
+}
+
+function closeRangePicker() {
+  if (!rangeDraft) return;
+  rangeDraft = null;
+  document.getElementById('rangePop').classList.remove('open');
+  document.getElementById('rangeTrigger').classList.remove('on');
+  document.removeEventListener('click', onRangePickerOutsideClick, true);
+  const months = document.getElementById('rangeMonths');
+  months.removeEventListener('click', onRangeDayClick);
+  months.removeEventListener('mouseover', onRangeDayHover);
+  oneMonthMql.removeEventListener('change', renderRangePicker);
+}
+
+// Both grids are delegated: one listener pair on #rangeMonths instead of two per day cell. Only the
+// selectable days carry data-iso, so the lead padding and the days after today stay inert. It has to
+// be 'mouseover' — 'mouseenter' does not bubble, so it cannot be delegated.
+function onRangeDayClick(e) {
+  const iso = e.target.dataset?.iso;
+  if (iso) pickRangeDay(iso);
+}
+
+function onRangeDayHover(e) {
+  const iso = e.target.dataset?.iso;
+  if (iso && rangeDraft?.from && !rangeDraft.to && rangeDraft.hover !== iso) {
+    rangeDraft.hover = iso;
+    paintRangeSpan();
+  }
+}
+
+// Outside click cancels: the draft is dropped and the applied range stays.
+function onRangePickerOutsideClick(e) {
+  if (!document.getElementById('rangePicker').contains(e.target)) closeRangePicker();
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from popover markup
+function aimRangePicker(which) {
+  if (!rangeDraft) return;
+  rangeDraft.picking = which;
+  renderRangePicker();
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from popover markup
+function applyRangeDraft() {
+  const d = rangeDraft;
+  if (!d?.from || !d.to) return;
+  const next = { kind: 'custom', from: d.from, to: d.to };
+  closeRangePicker();
+  applyRange(next);
+}
+
+function pickRangeDay(iso) {
+  const d = rangeDraft;
+  d.preset = null;
+  if (d.picking === 'from' || !d.from) {
+    d.from = iso;
+    d.to = null;
+    d.picking = 'to';
+  } else if (iso < d.from) {
+    // A second click before the first flips the pair instead of refusing it.
+    d.to = d.from;
+    d.from = iso;
+    d.picking = 'from';
+  } else {
+    d.to = iso;
+    d.picking = 'from';
+  }
+  d.hover = null;
+  renderRangePicker();
+}
+
+function rangeMonthStep(step) {
+  const c = new Date(rangeDraft.month.y, rangeDraft.month.m + step, 1);
+  rangeDraft.month = { y: c.getFullYear(), m: c.getMonth() };
+  renderRangePicker();
+}
+
+// There is no cost data ahead of today, so the calendar stops at the current month.
+function rangeNextDisabled() {
+  const last = new Date(rangeDraft.month.y, rangeDraft.month.m + (oneMonthMode() ? 0 : 1), 1);
+  const now = new Date();
+  return last >= new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+// The highlighted span: the picked window, or from -> the hovered day while the second end is open.
+function rangeDraftSpan() {
+  const d = rangeDraft;
+  if (!d?.from) return [null, null];
+  if (d.to) return [d.from, d.to];
+  if (!d.hover) return [d.from, d.from];
+  return d.hover < d.from ? [d.hover, d.from] : [d.from, d.hover];
+}
+
+// The span highlight is four classes on day cells that already exist, so a hover repaint toggles
+// them in place instead of rebuilding both grids. Sole owner of those classes — buildRangeMonth
+// leaves them to the paint pass that follows it, so the two can never drift apart.
+function paintRangeSpan() {
+  const [a, b] = rangeDraftSpan();
+  for (const btn of document.querySelectorAll('#rangeMonths .range-day[data-iso]')) {
+    const iso = btn.dataset.iso;
+    const inSpan = !!(a && b && iso >= a && iso <= b);
+    const edge = inSpan && (iso === a || iso === b);
+    btn.classList.toggle('edge', edge);
+    btn.classList.toggle('in', inSpan && !edge);
+    btn.classList.toggle('start', inSpan && !edge && isoShift(iso, -1) === a);
+    btn.classList.toggle('end', inSpan && !edge && isoShift(iso, 1) === b);
+  }
+}
+
+function renderRangePicker() {
+  const d = rangeDraft;
+  if (!d) return;
+
+  for (const b of document.querySelectorAll('#rangePresets .range-preset')) {
+    b.classList.toggle('on', b.dataset.value === d.preset);
+  }
+
+  const fromBox = document.getElementById('rangeFromBox');
+  const toBox = document.getElementById('rangeToBox');
+  fromBox.textContent = d.from ? isoDayLabel(d.from) : '—';
+  toBox.textContent = d.to ? isoDayLabel(d.to) : '—';
+  fromBox.classList.toggle('empty', !d.from);
+  toBox.classList.toggle('empty', !d.to);
+  fromBox.classList.toggle('active', d.picking === 'from');
+  toBox.classList.toggle('active', d.picking === 'to');
+
+  const [a, b] = rangeDraftSpan();
+  const days = d.from && d.to ? isoDayCount(a, b) : 0;
+  document.getElementById('rangeSummary').textContent = days
+    ? `${days} ${days === 1 ? 'day' : 'days'}`
+    : 'pick an end date';
+  document.getElementById('rangeApply').disabled = !(d.from && d.to);
+
+  const host = document.getElementById('rangeMonths');
+  host.innerHTML = '';
+  const single = oneMonthMode();
+  const first = new Date(d.month.y, d.month.m, 1);
+  host.appendChild(buildRangeMonth(first.getFullYear(), first.getMonth(), { prev: true, next: single }));
+  if (!single) {
+    const second = new Date(d.month.y, d.month.m + 1, 1);
+    host.appendChild(buildRangeMonth(second.getFullYear(), second.getMonth(), { prev: false, next: true }));
+  }
+  paintRangeSpan();
+}
+
+function rangeNavButton(dir) {
+  const step = dir === 'next' ? 1 : -1;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'range-nav';
+  btn.innerHTML = `<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">${RANGE_ARROWS[dir]}</svg>`;
+  if (step > 0) btn.disabled = rangeNextDisabled();
+  btn.addEventListener('click', () => rangeMonthStep(step));
+  return btn;
+}
+
+// Holds the title centred on the side that carries no arrow.
+function rangeNavGap() {
+  const gap = document.createElement('span');
+  gap.className = 'range-nav-gap';
+  return gap;
+}
+
+function buildRangeMonth(y, m, nav) {
+  const wrap = document.createElement('div');
+  wrap.className = 'range-cal';
+
+  const title = new Date(y, m, 1).toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
+
+  const head = document.createElement('div');
+  head.className = 'range-cal-head';
+  head.appendChild(nav.prev ? rangeNavButton('prev') : rangeNavGap());
+  const titleEl = document.createElement('span');
+  titleEl.className = 'range-cal-title';
+  titleEl.textContent = `${title} ${y}`;
+  head.appendChild(titleEl);
+  head.appendChild(nav.next ? rangeNavButton('next') : rangeNavGap());
+  wrap.appendChild(head);
+
+  const dow = document.createElement('div');
+  dow.className = 'range-dow';
+  dow.innerHTML = RANGE_DOW.map((d) => `<span>${d}</span>`).join('');
+  wrap.appendChild(dow);
+
+  const grid = document.createElement('div');
+  grid.className = 'range-grid';
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7; // Monday-first
+  const dayCount = new Date(y, m + 1, 0).getDate();
+  const today = todayIso();
+
+  for (let i = 0; i < lead; i++) {
+    const pad = document.createElement('span');
+    pad.className = 'range-day pad';
+    grid.appendChild(pad);
+  }
+  for (let day = 1; day <= dayCount; day++) {
+    const iso = isoDate(new Date(y, m, day));
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'range-day';
+    btn.textContent = day;
+    if (iso === today) btn.classList.add('today');
+    if (iso > today) {
+      btn.classList.add('off');
+      btn.disabled = true;
+    } else {
+      // What the delegated click/hover handlers and paintRangeSpan read the cell's day back from.
+      btn.dataset.iso = iso;
+    }
+    grid.appendChild(btn);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+// #endregion
+
 // #region ROUTER
 
 function setActiveNav(view) {
@@ -1251,11 +1733,13 @@ function sortBy(field) {
   else renderProjects();
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: called from HTML onchange
-async function onRangeChange(val) {
-  dateRange = val === 'today' ? 'today' : parseInt(val, 10) || 7;
+// The one entry point for a range change, from either half of the picker. The lastRenderHash reset
+// is load-bearing: the renderers are hash-gated and would not repaint the new window otherwise.
+async function applyRange(next) {
+  dateRange = next;
   saveDateRange(dateRange);
   lastRenderHash = {};
+  renderRangeTrigger();
   updateUrl();
   const t = showToast(`Recalculating for ${rangeLabel(dateRange)}...`, true);
   await loadAndRender(currentView);
@@ -1481,6 +1965,16 @@ document.addEventListener('keydown', (e) => {
   if (anyModal) {
     if (e.key === 'Escape') {
       anyModal.classList.remove('visible');
+      e.preventDefault();
+    }
+    return;
+  }
+
+  // The same exemption the modal above gets: the popover is a div, so the INPUT/SELECT guard does
+  // not cover it, and r/t/j/k/Esc would otherwise fire straight through an open picker.
+  if (isRangePickerOpen()) {
+    if (e.key === 'Escape') {
+      closeRangePicker();
       e.preventDefault();
     }
     return;
@@ -1723,7 +2217,8 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('DOMContentLoaded', async () => {
   const state = getUrlState();
   dateRange = loadDateRange();
-  document.getElementById('rangeSelect').value = dateRange;
+  buildRangePresets();
+  renderRangeTrigger();
 
   // Resolve the scope before any navigate() so the first /api/overview already carries
   // &project=. Read window.location.search directly, not getUrlState() — that falls back to

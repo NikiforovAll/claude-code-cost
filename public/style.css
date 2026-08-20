@@ -155,40 +155,6 @@ body {
   color: var(--accent-text);
 }
 
-/* Native chevron is OS-styled and clashes with the mono topbar, so appearance is reset
-   and the chevron redrawn; its gray reads as tertiary text in both themes. */
-.topbar-select {
-  appearance: none;
-  background-color: var(--bg-elevated);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238a8d95' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5L5 5 9 1.5'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
-  background-size: 9px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-tertiary);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  padding: 6px 26px 6px 10px;
-  outline: none;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.topbar-select:hover {
-  border-color: var(--accent);
-  color: var(--text-secondary);
-}
-.topbar-select:focus-visible {
-  border-color: var(--accent);
-}
-.topbar-select option {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-}
-
 /* #region SCOPE_CHIP */
 
 /* Reuses --accent-dim/--accent-text from .topbar-nav-btn.active so LIGHT_THEME needs nothing. */
@@ -351,6 +317,293 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* #endregion */
+
+/* #region DATE_PICKER */
+
+/* Replaces the native range <select>: a trigger button plus a popover with preset shortcuts and
+   two month grids. Reuses the topbar-btn shell and the same tokens as .theme-menu, so every color
+   theme and the light theme need nothing here. */
+.range-picker {
+  position: relative;
+  display: inline-flex;
+}
+.range-trigger .range-label {
+  min-width: 84px;
+  text-align: left;
+}
+.range-trigger .chev {
+  transition: transform 0.15s ease;
+}
+.range-trigger.on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+.range-trigger.on svg {
+  color: var(--accent-text);
+}
+.range-trigger.on .chev {
+  transform: rotate(180deg);
+}
+
+.range-pop {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.range-pop.open {
+  display: flex;
+}
+
+.range-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  min-width: 116px;
+}
+
+/* Shared by the Shortcuts header and the From/To field captions. */
+.range-head-label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 2px 6px 6px;
+}
+
+.range-preset {
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.range-preset:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.range-preset.on {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+
+.range-cal-side {
+  padding: 8px 10px 10px;
+}
+
+.range-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 2px 8px;
+}
+.range-field {
+  flex: 1;
+}
+.range-field .range-head-label {
+  padding: 0 0 3px;
+}
+.range-field-box {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 5px 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.range-field-box.active {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.range-field-box.empty {
+  color: var(--text-muted);
+}
+.range-field-dash {
+  color: var(--text-muted);
+  padding-bottom: 6px;
+}
+
+.range-months {
+  display: flex;
+  gap: 14px;
+}
+.range-cal {
+  width: 196px;
+}
+.range-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+.range-cal-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.range-nav {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.range-nav:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.range-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.range-nav svg {
+  width: 9px;
+  height: 9px;
+}
+.range-nav-gap {
+  width: 20px;
+}
+
+.range-dow,
+.range-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.range-dow span {
+  font-size: 9px;
+  text-align: center;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  padding-bottom: 3px;
+}
+.range-day {
+  height: 24px;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+}
+.range-day.pad {
+  visibility: hidden;
+}
+.range-day.off {
+  color: var(--text-muted);
+  opacity: 0.4;
+  cursor: default;
+}
+.range-day.today::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.range-day:hover:not(.off) {
+  color: var(--text-primary);
+}
+.range-day.in {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+.range-day.edge {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.range-day.edge.today::after {
+  background: #fff;
+}
+.range-day.in.start {
+  border-radius: 4px 0 0 4px;
+}
+.range-day.in.end {
+  border-radius: 0 4px 4px 0;
+}
+
+.range-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 9px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.range-summary {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.range-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+}
+.range-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-secondary);
+}
+.range-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.range-btn.primary:hover {
+  filter: brightness(1.08);
+  color: #fff;
+}
+.range-btn.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
 }
 
 /* #endregion */
@@ -986,6 +1239,17 @@ body.light {
   }
   .cards-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* The two-month popover is wider than a narrow viewport: renderRangePicker() watches the same
+   breakpoint and draws a single month with both nav arrows. */
+@media (max-width: 760px) {
+  .range-presets {
+    min-width: 100px;
+  }
+  .range-cal {
+    width: 182px;
   }
 }
 

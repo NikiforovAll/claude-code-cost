@@ -214,21 +214,37 @@ function calculateEntryCost(data, pricing) {
 // #region DATA_AGGREGATION
 
 const CACHE_TTL = 30_000;
-let dataCache = {};
-let cacheTimestamps = {};
 
-function isCacheValid(key) {
-  return cacheTimestamps[key] && (Date.now() - cacheTimestamps[key]) < CACHE_TTL;
+// Custom from/to windows make the key space unbounded, so the cache is capped, which would
+// otherwise grow for the process lifetime. A Map keeps insertion order, so the oldest write is
+// always the first key — no sort, no key array.
+const MAX_CACHE_ENTRIES = 50;
+const dataCache = new Map();
+
+// undefined means "no usable entry": every cached payload is an object or an array, so it can
+// never collide with a real one. A stale hit is dropped here rather than left resident until the
+// cap pushes it out — detail_<id> entries carry a whole message array.
+function getCache(key) {
+  const hit = dataCache.get(key);
+  if (!hit) return undefined;
+  if ((Date.now() - hit.ts) >= CACHE_TTL) {
+    dataCache.delete(key);
+    return undefined;
+  }
+  return hit.data;
 }
 
 function setCache(key, data) {
-  dataCache[key] = data;
-  cacheTimestamps[key] = Date.now();
+  // Re-inserting moves an existing key to the back, so a rewrite resets its eviction priority.
+  dataCache.delete(key);
+  dataCache.set(key, { data, ts: Date.now() });
+  while (dataCache.size > MAX_CACHE_ENTRIES) {
+    dataCache.delete(dataCache.keys().next().value);
+  }
 }
 
 function invalidateAllCache() {
-  dataCache = {};
-  cacheTimestamps = {};
+  dataCache.clear();
 }
 
 function localDateStr(d) {
@@ -260,7 +276,8 @@ const BUCKETS = {
 
 // A one-day window collapses the daily chart into a single bar, so those ranges bucket by hour.
 function rangeBucket(range) {
-  return range === 'today' || range === 1 ? 'hour' : 'day';
+  if (isCustomRange(range)) return range.from === range.to ? 'hour' : 'day';
+  return range === 'today' || range === '24h' || range === 1 ? 'hour' : 'day';
 }
 
 // Non-real (synthetic) models group under 'other' so the series still sums to the true
@@ -533,16 +550,92 @@ async function loadProjectData(files, pricing) {
   return sessions;
 }
 
+// A range is either a preset — 'today', '24h', the last N calendar days, or null for all time, all
+// anchored to the request — or a custom window of two local YYYY-MM-DD dates.
+function isCustomRange(range) {
+  return !!range && typeof range === 'object' && !!range.from && !!range.to;
+}
+
+function localDayStart(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+// `to` names a whole day, so the window runs through the end of it — a midnight bound would
+// silently drop that day's data.
+function localDayEnd(dateStr) {
+  const d = localDayStart(dateStr);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 function rangeToCutoff(range, now) {
+  if (isCustomRange(range)) return localDayStart(range.from);
   if (range === 'today') {
     const c = new Date(now);
     c.setHours(0, 0, 0, 0);
     return c;
   }
+  // The one rolling preset left, and the reason it is labelled in hours: no midnight snap, so it
+  // spans two calendar days.
+  if (range === '24h') return new Date(now.getTime() - 24 * 60 * 60 * 1000);
   if (!range) return null;
+  // N calendar days ending today: identical to from=today-(N-1)&to=today, so the chart draws
+  // exactly N buckets instead of N+1 with a partial leading one.
   const c = new Date(now);
-  c.setDate(c.getDate() - range);
+  c.setDate(c.getDate() - (range - 1));
+  c.setHours(0, 0, 0, 0);
   return c;
+}
+
+// The window's upper bound, which used to be an implicit `now` in six places. Presets are rolling,
+// so theirs still is; a custom window ends with its `to` day.
+function rangeToEnd(range, now) {
+  return isCustomRange(range) ? localDayEnd(range.to) : new Date(now);
+}
+
+// Presets keep an open upper bound: they end at "whenever this request lands", so filtering
+// against a captured `now` would only ever drop rows a live session wrote mid-request.
+function windowEndStr(range, windowEnd) {
+  return isCustomRange(range) ? windowEnd.toISOString() : null;
+}
+
+// True when today falls inside the window. A null cutoff means open toward the past.
+function windowContainsToday(cutoff, windowEnd, now) {
+  const todayStr = localDateStr(now);
+  return (!cutoff || localDateStr(cutoff) <= todayStr) && localDateStr(windowEnd) >= todayStr;
+}
+
+// Everything a range resolves to, anchored to one captured `now` so the bounds of a single request
+// can never disagree with each other. `cutoff` stays null for the all-time range.
+function resolveWindow(range, now = new Date()) {
+  const cutoff = rangeToCutoff(range, now);
+  const end = rangeToEnd(range, now);
+  return {
+    now, cutoff, end,
+    cutoffStr: cutoff ? cutoff.toISOString() : null,
+    endStr: windowEndStr(range, end),
+    hasToday: windowContainsToday(cutoff, end, now),
+  };
+}
+
+// Two-sided when the window has an end, so a window that stops in the past excludes later
+// messages. A null bound means open in that direction.
+function filterWindow(messages, fromStr, toStr) {
+  if (!fromStr && !toStr) return messages;
+  return messages.filter((m) => (!fromStr || m.timestamp >= fromStr) && (!toStr || m.timestamp <= toStr));
+}
+
+// Custom windows key by their dates, which is why the cache is capped (see MAX_CACHE_ENTRIES).
+function rangeKey(range) {
+  if (isCustomRange(range)) return `${range.from}_${range.to}`;
+  return range || 'all';
+}
+
+// True when the window is exactly today — a preset 'today' or a single-day pick landing on it.
+function isTodayRange(range, now) {
+  if (isCustomRange(range)) return range.from === range.to && range.to === localDateStr(now);
+  return range === 'today';
 }
 
 function summarizeMessages(msgs) {
@@ -558,14 +651,21 @@ function summarizeMessages(msgs) {
 }
 
 async function getOverviewData(range, projectFilter) {
-  const cacheKey = `overview_${range}_${projectFilter || 'all'}`;
-  if (isCacheValid(cacheKey)) return dataCache[cacheKey];
+  const cacheKey = `overview_${rangeKey(range)}_${projectFilter || 'all'}`;
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
 
   const pricing = await fetchPricing();
-  const now = new Date();
-  const cutoff = rangeToCutoff(range, now) || new Date(now);
+  const w = resolveWindow(range);
+  const now = w.now;
+  // The series needs a concrete start even for the all-time range, so a null cutoff falls back to
+  // now. Deliberately local: pushing it into resolveWindow would hand the other callers a non-null
+  // all-time cutoff and change what they filter on.
+  const cutoff = w.cutoff || w.now;
+  const windowEnd = w.end;
   const projects = scanProjectDirs(cutoff, projectFilter);
   const cutoffStr = cutoff.toISOString();
+  const endStr = w.endStr;
 
   let totalCost = 0, totalSessions = 0;
   let totalInput = 0, totalOutput = 0, totalCacheCreation = 0, totalCacheRead = 0;
@@ -582,7 +682,7 @@ async function getOverviewData(range, projectFilter) {
 
     for (const [, session] of sessions) {
       // Filter messages within date range
-      const inRange = session.messages.filter(m => m.timestamp >= cutoffStr);
+      const inRange = filterWindow(session.messages, cutoffStr, endStr);
       if (inRange.length === 0) continue;
 
       let sessionCost = 0, sessionInput = 0, sessionOutput = 0, sessionCacheCreation = 0, sessionCacheRead = 0;
@@ -623,12 +723,15 @@ async function getOverviewData(range, projectFilter) {
     }
   }
 
-  const costSeries = buildCostSeries(bucketModelCosts, cutoff, now, bucket);
+  const costSeries = buildCostSeries(bucketModelCosts, cutoff, windowEnd, bucket);
 
+  // The today slice is scoped to the window. A window that ends before today has no today bucket,
+  // and a 0 there reads as "nothing spent today" rather than "outside the selected window" — so it
+  // is reported as null and the card is dropped instead.
   const todayStr = localDateStr(now);
-  const todayCost = costSeries
-    .filter((p) => p.key.startsWith(todayStr))
-    .reduce((s, p) => s + p.cost, 0);
+  const todayCost = w.hasToday
+    ? costSeries.filter((p) => p.key.startsWith(todayStr)).reduce((s, p) => s + p.cost, 0)
+    : null;
 
   const totalInputAll = totalInput + totalCacheCreation + totalCacheRead;
   const cacheEfficiency = totalInputAll > 0 ? totalCacheRead / totalInputAll : 0;
@@ -653,14 +756,13 @@ async function getOverviewData(range, projectFilter) {
 }
 
 async function getProjectsData(range, projectFilter) {
-  const cacheKey = `projects_${range || 'all'}_${projectFilter || 'all'}`;
-  if (isCacheValid(cacheKey)) return dataCache[cacheKey];
+  const cacheKey = `projects_${rangeKey(range)}_${projectFilter || 'all'}`;
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
 
   const pricing = await fetchPricing();
-  const now = new Date();
-  const cutoff = rangeToCutoff(range, now);
-  const projects = scanProjectDirs(cutoff, projectFilter);
-  const cutoffStr = cutoff ? cutoff.toISOString() : null;
+  const w = resolveWindow(range);
+  const projects = scanProjectDirs(w.cutoff, projectFilter);
   const result = [];
 
   for (const [encodedPath, proj] of projects) {
@@ -669,9 +771,7 @@ async function getProjectsData(range, projectFilter) {
     const projModelCounts = {};
 
     for (const [, session] of sessions) {
-      const msgs = cutoffStr
-        ? session.messages.filter(m => m.timestamp >= cutoffStr)
-        : session.messages;
+      const msgs = filterWindow(session.messages, w.cutoffStr, w.endStr);
       if (msgs.length === 0) continue;
 
       const cost = msgs.reduce((s, m) => s + m.cost, 0);
@@ -705,28 +805,25 @@ async function getProjectsData(range, projectFilter) {
 }
 
 async function getProjectSessionsData(encodedPath, range) {
-  const cacheKey = `sessions_${encodedPath}_${range || 'all'}`;
-  if (isCacheValid(cacheKey)) return dataCache[cacheKey];
+  const cacheKey = `sessions_${encodedPath}_${rangeKey(range)}`;
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
 
   const pricing = await fetchPricing();
-  const now = new Date();
-  const cutoff = rangeToCutoff(range, now);
-  const projects = scanProjectDirs(cutoff);
+  const w = resolveWindow(range);
+  const projects = scanProjectDirs(w.cutoff);
   const proj = projects.get(encodedPath);
   const bucket = rangeBucket(range);
   if (!proj) return { sessions: [], costSeries: { bucket, points: [] }, modelDistribution: [] };
 
   const sessions = await loadProjectData(proj.files, pricing);
-  const cutoffStr = cutoff ? cutoff.toISOString() : null;
   const result = [];
   const bucketKey = BUCKETS[bucket].key;
   const bucketModelCosts = {};
   const modelCosts = {};
 
   for (const [, session] of sessions) {
-    const msgs = cutoffStr
-      ? session.messages.filter(m => m.timestamp >= cutoffStr)
-      : session.messages;
+    const msgs = filterWindow(session.messages, w.cutoffStr, w.endStr);
     if (msgs.length === 0) continue;
 
     const sum = summarizeMessages(msgs);
@@ -759,12 +856,12 @@ async function getProjectSessionsData(encodedPath, range) {
   }
 
   // No range means "everything", so the series starts at the first bucket that has cost.
-  let seriesStart = cutoff;
+  let seriesStart = w.cutoff;
   if (!seriesStart) {
     const keys = Object.keys(bucketModelCosts).sort();
-    seriesStart = keys.length ? new Date(`${keys[0]}T00:00:00`) : now;
+    seriesStart = keys.length ? new Date(`${keys[0]}T00:00:00`) : w.now;
   }
-  const costSeries = buildCostSeries(bucketModelCosts, seriesStart, now, bucket);
+  const costSeries = buildCostSeries(bucketModelCosts, seriesStart, w.end, bucket);
 
   const modelDistribution = buildModelDistribution(modelCosts);
 
@@ -783,21 +880,24 @@ async function getProjectSessionsData(encodedPath, range) {
 // instead of silently disagreeing with it. They are derived outside the cache so switching ranges
 // does not re-parse the session's JSONL.
 function withSessionSlices(base, range) {
-  const now = new Date();
-  const cutoff = rangeToCutoff(range, now);
-  const sliceFrom = (from) => summarizeMessages(base.messages.filter(m => m.timestamp >= from));
-  const inRange = cutoff ? sliceFrom(cutoff.toISOString()) : null;
+  const w = resolveWindow(range);
+  const slice = (fromStr) => summarizeMessages(filterWindow(base.messages, fromStr, w.endStr));
+  const inRange = w.cutoffStr ? slice(w.cutoffStr) : null;
+  const todayStart = rangeToCutoff('today', w.now);
+  // Scoped to the window like the overview's today card: a window ending in the past has no
+  // today to report, and a zeroed slice would read as "nothing spent today".
   return {
     ...base,
     range,
     inRange,
-    today: range === 'today' ? inRange : sliceFrom(rangeToCutoff('today', now).toISOString()),
+    today: isTodayRange(range, w.now) ? inRange : w.hasToday ? slice(todayStart.toISOString()) : null,
   };
 }
 
 async function getSessionDetailData(sessionId) {
   const cacheKey = `detail_${sessionId}`;
-  if (isCacheValid(cacheKey)) return dataCache[cacheKey];
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
 
   const pricing = await fetchPricing();
   const projects = scanProjectDirs();
@@ -866,8 +966,34 @@ app.get('/hub-config', (_req, res) => {
 
 function parseRange(raw, fallback = null) {
   if (raw === 'today') return 'today';
+  if (raw === '24h') return '24h';
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/;
+
+// A local calendar date, normalized so it can safely reach a cache key — same discipline as
+// parseProject. Returns undefined for absent, null for malformed.
+function parseDateParam(raw) {
+  if (raw === undefined || raw === '') return undefined;
+  if (typeof raw !== 'string' || !DATE_PARAM.test(raw)) return null;
+  return localDateStr(localDayStart(raw)) === raw ? raw : null;
+}
+
+// A custom window, if the request asked for one: `from`/`to` take precedence over `range`.
+// Reversed pairs are ordered and both ends clamped to today — there is no cost data ahead of now,
+// and an inverted window would otherwise render as an unexplained empty chart.
+// Returns undefined when no window was requested, null when one was but is malformed.
+function parseCustomRange(query) {
+  const from = parseDateParam(query.from);
+  const to = parseDateParam(query.to);
+  if (from === null || to === null) return null;
+  if (from === undefined && to === undefined) return undefined;
+  if (from === undefined || to === undefined) return null;
+  const today = localDateStr(new Date());
+  const [lo, hi] = from <= to ? [from, to] : [to, from];
+  return { from: lo > today ? today : lo, to: hi > today ? today : hi };
 }
 
 // Encoded project-dir name (the hub sends it pre-encoded — see encodeProjectPath in the hub's
@@ -882,12 +1008,23 @@ function parseProject(raw) {
   return raw;
 }
 
-app.get('/api/overview', async (req, res) => {
+// Resolves a request's range onto req.range: a custom from/to window wins over `range`. A resolved
+// range cannot signal malformed input with null (null *is* the all-time range), so the rejection
+// happens here, ahead of the handler, instead of being threaded back to it as a sentinel value.
+// Only the range — a route that also scopes by project keeps its own parseProject guard, because
+// the routes that don't call parseProject must go on ignoring a malformed `project`.
+const withRange = (fallback = null) => (req, res, next) => {
+  const custom = parseCustomRange(req.query);
+  if (custom === null) return res.status(400).json({ error: 'Invalid date range' });
+  req.range = custom || parseRange(req.query.range, fallback);
+  next();
+};
+
+app.get('/api/overview', withRange(30), async (req, res) => {
   try {
-    const range = parseRange(req.query.range, 30);
     const project = parseProject(req.query.project);
     if (project === null) return res.status(400).json({ error: 'Invalid project' });
-    const data = await getOverviewData(range, project);
+    const data = await getOverviewData(req.range, project);
     res.json(data);
   } catch (err) {
     console.error('[API] overview error:', err);
@@ -895,12 +1032,11 @@ app.get('/api/overview', async (req, res) => {
   }
 });
 
-app.get('/api/projects', async (req, res) => {
+app.get('/api/projects', withRange(), async (req, res) => {
   try {
-    const range = parseRange(req.query.range);
     const project = parseProject(req.query.project);
     if (project === null) return res.status(400).json({ error: 'Invalid project' });
-    const data = await getProjectsData(range, project);
+    const data = await getProjectsData(req.range, project);
     res.json(data);
   } catch (err) {
     console.error('[API] projects error:', err);
@@ -908,10 +1044,9 @@ app.get('/api/projects', async (req, res) => {
   }
 });
 
-app.get('/api/projects/:path/sessions', async (req, res) => {
+app.get('/api/projects/:path/sessions', withRange(), async (req, res) => {
   try {
-    const range = parseRange(req.query.range);
-    const data = await getProjectSessionsData(req.params.path, range);
+    const data = await getProjectSessionsData(req.params.path, req.range);
     res.json(data);
   } catch (err) {
     console.error('[API] sessions error:', err);
@@ -919,11 +1054,11 @@ app.get('/api/projects/:path/sessions', async (req, res) => {
   }
 });
 
-app.get('/api/sessions/:id', async (req, res) => {
+app.get('/api/sessions/:id', withRange(), async (req, res) => {
   try {
     const base = await getSessionDetailData(req.params.id);
     if (!base) return res.status(404).json({ error: 'Session not found' });
-    res.json(withSessionSlices(base, parseRange(req.query.range)));
+    res.json(withSessionSlices(base, req.range));
   } catch (err) {
     console.error('[API] session detail error:', err);
     res.status(500).json({ error: 'Failed to load session detail' });
