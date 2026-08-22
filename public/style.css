@@ -1307,6 +1307,16 @@ body {
   background: var(--success-dim);
 }
 
+.card-value.pace-ok {
+  color: var(--success);
+}
+.card-value.pace-warn {
+  color: var(--warning);
+}
+.card-value.pace-hot {
+  color: var(--error);
+}
+
 /* #endregion */
 
 /* #region LIGHT_THEME */

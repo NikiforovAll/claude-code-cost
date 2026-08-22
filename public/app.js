@@ -768,6 +768,29 @@ function blockSpanLabel(b) {
   return `${new Date(b.start).toLocaleString(undefined, opts)} – ${new Date(b.end).toLocaleTimeString(undefined, { hour: 'numeric' })}`;
 }
 
+// Classifies the active block's projection: against the live usage limit when the statusline
+// snapshot gave us used %, else against this range's completed blocks (median/P90 of cost).
+// Returns null when there is no active block or nothing to compare against.
+function burnPace(ab, blocks) {
+  if (!ab?.burn) return null;
+  const blockMin = (new Date(ab.end) - new Date(ab.start)) / 60000;
+  const elapsedMin = Math.max(1, blockMin - ab.burn.remainingMin);
+  if (ab.usedPct != null) {
+    const projPct = (ab.usedPct / elapsedMin) * blockMin;
+    const cls = projPct >= 100 ? 'hot' : projPct >= 80 ? 'warn' : 'ok';
+    return { cls, note: `on pace for ${Math.round(Math.min(projPct, 999))}% of limit` };
+  }
+  const past = blocks
+    .filter((b) => !b.active && b.cost > 0)
+    .map((b) => b.cost)
+    .sort((a, b) => a - b);
+  if (past.length < 3) return null;
+  const median = past[Math.floor(past.length / 2)];
+  const p90 = past[Math.min(past.length - 1, Math.floor(past.length * 0.9))];
+  const cls = ab.burn.projectedCost > p90 ? 'hot' : ab.burn.projectedCost > median ? 'warn' : 'ok';
+  return { cls, note: `vs. ${formatCost(median)} median block` };
+}
+
 function renderInsights() {
   const el = document.getElementById('insights-view');
   if (!el) return;
@@ -782,6 +805,7 @@ function renderInsights() {
   lastRenderHash.insights = h;
 
   const ab = d.blocks.find((b) => b.active) || null;
+  const pace = burnPace(ab, d.blocks);
   const sub = d.subagents;
   const agentTotal = sub.mainCost + sub.subagentCost;
   const subPct = formatPct(sub.subagentCost, agentTotal);
@@ -799,8 +823,8 @@ function renderInsights() {
         </div>
         <div class="stat-card">
           <div class="card-label">Burn Rate</div>
-          <div class="card-value">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
-          <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. ${formatCost(ab.burn.projectedCost)} by block end` : 'no active block'}</div>
+          <div class="card-value${pace ? ` pace-${pace.cls}` : ''}">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
+          <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. ${formatCost(ab.burn.projectedCost)} by block end${pace ? ` &middot; ${pace.note}` : ''}` : 'no active block'}</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Monthly Run-Rate</div>
