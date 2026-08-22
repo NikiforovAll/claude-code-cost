@@ -47,9 +47,8 @@ body {
   background: var(--bg-deep);
   color: var(--text-primary);
   line-height: 1.5;
-  height: calc(100vh / 1.1);
+  height: 100vh;
   display: flex;
-  zoom: 1.1;
   flex-direction: column;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -1158,13 +1157,19 @@ body {
   color: var(--text-primary);
 }
 
-.shortcut-table kbd {
+kbd {
   background: var(--bg-hover);
-  padding: 1px 6px;
+  padding: 2px 6px;
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 11px;
   border: 1px solid var(--border);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.topbar-btn kbd {
+  font-size: 10px;
+  line-height: 1;
 }
 
 /* #endregion */
@@ -1324,7 +1329,7 @@ body {
 body.light {
   --bg-deep: #e8e6e3;
   --bg-surface: #efede9;
-  --bg-elevated: #fbfaf9;
+  --bg-elevated: #f7f4f0;
   --bg-hover: #d2d0cc;
   --border: #cfcbc4;
   --text-primary: #0a0a0a;
