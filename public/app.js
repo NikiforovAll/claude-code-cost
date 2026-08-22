@@ -823,7 +823,7 @@ function renderInsights() {
         </div>
         <div class="stat-card">
           <div class="card-label">Burn Rate</div>
-          <div class="card-value${pace ? ` pace-${pace.cls}` : ''}">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
+          <div class="card-value${pace ? ` pace-${esc(pace.cls)}` : ''}">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
           <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. ${formatCost(ab.burn.projectedCost)} by block end${pace ? ` &middot; ${pace.note}` : ''}` : 'no active block'}</div>
         </div>
         <div class="stat-card">
