@@ -705,27 +705,36 @@ function ampm(h) {
 }
 
 function buildHeatmap(hm, days, today) {
-  const max = hm.reduce((m, row) => Math.max(m, ...row), 0);
+  // Post-midnight columns sit at each row's tail and read from the next calendar day — the
+  // night belongs to the evening it continues, not the morning it precedes. Each row's 24
+  // displayed costs are precomputed here (the last row's tail is the future: all zeros).
+  const rowCosts = hm.map((row, d) => [
+    ...row.slice(HEATMAP_START_HOUR),
+    ...(hm[d + 1] ? hm[d + 1].slice(0, HEATMAP_START_HOUR) : new Array(HEATMAP_START_HOUR).fill(0)),
+  ]);
+  const max = rowCosts.reduce((m, row) => Math.max(m, ...row), 0);
   if (max === 0) return '<div class="empty-state"><div>No activity in this range</div></div>';
+  const labels = days.map(heatmapDayLabel);
   const hourAt = (col) => (col + HEATMAP_START_HOUR) % 24;
   const hours = Array.from(
     { length: 24 },
     (_, col) => `<span class="hm-hour">${hourAt(col) % 3 === 0 ? ampm(hourAt(col)) : ''}</span>`,
   ).join('');
   const rows = hm
-    .map((row, d) => {
-      const label = heatmapDayLabel(days[d]);
+    .map((_, d) => {
+      const label = labels[d];
       return `
     <div class="hm-row${days[d] === today ? ' hm-today' : ''}">
       <span class="hm-day">${label}</span>
-      ${Array.from({ length: 24 }, (_, col) => {
-        const h = hourAt(col);
-        const cost = row[h];
-        return `
-        <span class="hm-cell" data-hm="${label}|${h}|${cost}">
+      ${rowCosts[d]
+        .map((cost, col) => {
+          const h = hourAt(col);
+          return `
+        <span class="hm-cell" data-hm="${h < HEATMAP_START_HOUR ? (labels[d + 1] ?? label) : label}|${h}|${cost}">
           <i style="opacity:${cost > 0 ? Math.max(0.12, cost / max).toFixed(2) : 0}"></i>
         </span>`;
-      }).join('')}
+        })
+        .join('')}
     </div>`;
     })
     .join('');

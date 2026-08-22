@@ -631,6 +631,8 @@ function resolveWindow(range, now = new Date()) {
   };
 }
 
+const byTimestamp = (a, b) => a.timestamp.localeCompare(b.timestamp);
+
 // Two-sided when the window has an end, so a window that stops in the past excludes later
 // messages. A null bound means open in that direction.
 function filterWindow(messages, fromStr, toStr) {
@@ -924,7 +926,7 @@ async function getSessionDetailData(sessionId) {
     if (!session) continue;
 
     // Sort messages by timestamp
-    session.messages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    session.messages.sort(byTimestamp);
 
     // Add cumulative cost
     let cumulative = 0;
@@ -1082,8 +1084,21 @@ async function getInsightsData(range, projectFilter) {
       if (!hmInAll) hmParts.push(filterWindow(session.messages, hmStartStr, w.endStr));
     }
   }
-  const all = allParts.flat().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const all = allParts.flat().sort(byTimestamp);
   const hmMsgs = hmInAll ? all.filter((m) => m.timestamp >= hmStartStr) : hmParts.flat();
+
+  // The live 5h window can open before the selected range starts (a Today filter after midnight
+  // cuts a block that opened the evening before), so block stats are computed over the block's
+  // own span. A live block always starts within the last 5h, inside the heatmap window, so its
+  // messages are a subset of hmMsgs — no extra scan needed.
+  const limits = w.hasToday ? readRateLimits(w.now) : null;
+  const blockStart = limits ? new Date(limits.resetsAtMs - BLOCK_MS) : null;
+  const blockInAll = !blockStart || w.cutoff === null || w.cutoff <= blockStart;
+  let blockMsgs = all;
+  if (!blockInAll) {
+    const fromStr = blockStart.toISOString();
+    blockMsgs = hmMsgs.filter((m) => m.timestamp >= fromStr).sort(byTimestamp);
+  }
 
   const sum = summarizeMessages(all);
   const tokens = { input: sum.inputTokens, output: sum.outputTokens, cacheCreation: sum.cacheCreationTokens, cacheRead: sum.cacheReadTokens };
@@ -1136,9 +1151,9 @@ async function getInsightsData(range, projectFilter) {
     if (idx >= 0 && idx < HEATMAP_DAYS) heatmap[idx][d.getHours()] += m.cost;
   }
 
-  const limits = readRateLimits(w.now);
-  // A window ending in the past has no "current" block — don't synthesize the live window there.
-  const blocks = computeBlocks(all, w.now, w.hasToday ? limits?.resetsAtMs || null : null);
+  // A window ending in the past has no "current" block — limits are only read when the window
+  // reaches today, so the live block is never synthesized for a historical range.
+  const blocks = computeBlocks(blockMsgs, w.now, limits?.resetsAtMs || null);
   const activeBlk = blocks.find((b) => b.active);
   if (activeBlk) activeBlk.usedPct = limits?.usedPct ?? null;
 
