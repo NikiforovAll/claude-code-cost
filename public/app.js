@@ -70,6 +70,10 @@ function formatTokens(count) {
   return count.toString();
 }
 
+function formatPct(part, total) {
+  return total > 0 ? ((part / total) * 100).toFixed(1) : '0.0';
+}
+
 function formatDuration(minutes) {
   if (!minutes || minutes < 1) return '<1m';
   if (minutes < 60) return `${minutes}m`;
@@ -174,9 +178,7 @@ function thClass(field) {
   return s && s.field === field ? 'sorted' : '';
 }
 
-function parentBreadcrumb() {
-  return `<a class="parent-breadcrumb">Overview</a>`;
-}
+const PARENT_BREADCRUMB = '<a class="parent-breadcrumb">Overview</a>';
 
 // In-view reminder that the numbers below cover one project, not everything. Reuses the
 // breadcrumb styling — same role (where am I), no new CSS.
@@ -684,7 +686,13 @@ function renderOverview() {
 
 // #region RENDER_INSIGHTS
 
-const HEATMAP_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const HEATMAP_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// "YYYY-MM-DD" → "Sat 22"; parsed as local parts to avoid the UTC shift of Date("YYYY-MM-DD").
+function heatmapDayLabel(dateStr) {
+  const [y, m, d] = isoParts(dateStr);
+  return `${HEATMAP_DAYS[new Date(y, m - 1, d).getDay()]} ${d}`;
+}
 
 // Columns start at 6 AM so the typical workday sits left-of-center instead of the dead
 // early-morning hours.
@@ -696,8 +704,8 @@ function ampm(h) {
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
 
-function buildHeatmap(hm) {
-  const max = Math.max(...hm.flat(), 0);
+function buildHeatmap(hm, days, today) {
+  const max = hm.reduce((m, row) => Math.max(m, ...row), 0);
   if (max === 0) return '<div class="empty-state"><div>No activity in this range</div></div>';
   const hourAt = (col) => (col + HEATMAP_START_HOUR) % 24;
   const hours = Array.from(
@@ -705,22 +713,21 @@ function buildHeatmap(hm) {
     (_, col) => `<span class="hm-hour">${hourAt(col) % 3 === 0 ? ampm(hourAt(col)) : ''}</span>`,
   ).join('');
   const rows = hm
-    .map(
-      (row, d) => `
-    <div class="hm-row">
-      <span class="hm-day">${HEATMAP_DAYS[d]}</span>
-      ${row
-        .map((_, col) => {
-          const h = hourAt(col);
-          const cost = row[h];
-          return `
-        <span class="hm-cell" data-hm="${d}|${h}|${cost}">
+    .map((row, d) => {
+      const label = heatmapDayLabel(days[d]);
+      return `
+    <div class="hm-row${days[d] === today ? ' hm-today' : ''}">
+      <span class="hm-day">${label}</span>
+      ${Array.from({ length: 24 }, (_, col) => {
+        const h = hourAt(col);
+        const cost = row[h];
+        return `
+        <span class="hm-cell" data-hm="${label}|${h}|${cost}">
           <i style="opacity:${cost > 0 ? Math.max(0.12, cost / max).toFixed(2) : 0}"></i>
         </span>`;
-        })
-        .join('')}
-    </div>`,
-    )
+      }).join('')}
+    </div>`;
+    })
     .join('');
   return `<div class="heatmap">${rows}<div class="hm-row"><span class="hm-day"></span>${hours}</div></div>`;
 }
@@ -738,8 +745,8 @@ function initHeatmapTooltip() {
       hmTipEl.classList.remove('on');
       return;
     }
-    const [d, h, cost] = cell.dataset.hm.split('|');
-    hmTipEl.innerHTML = `<b>${formatCost(+cost)}</b><span>${HEATMAP_DAYS[+d]} ${ampm(+h)}&ndash;${ampm((+h + 1) % 24)}</span>`;
+    const [day, h, cost] = cell.dataset.hm.split('|');
+    hmTipEl.innerHTML = `<b>${formatCost(+cost)}</b><span>${day} ${ampm(+h)}&ndash;${ampm((+h + 1) % 24)}</span>`;
     hmTipEl.classList.add('on');
     const r = cell.getBoundingClientRect();
     const tr = hmTipEl.getBoundingClientRect();
@@ -777,7 +784,7 @@ function renderInsights() {
   const ab = d.blocks.find((b) => b.active) || null;
   const sub = d.subagents;
   const agentTotal = sub.mainCost + sub.subagentCost;
-  const subPct = agentTotal > 0 ? ((sub.subagentCost / agentTotal) * 100).toFixed(1) : '0.0';
+  const subPct = formatPct(sub.subagentCost, agentTotal);
   const showWeekly = d.weekly.length >= 3;
 
   el.innerHTML = `
@@ -818,15 +825,15 @@ function renderInsights() {
           <canvas id="tokenSplitChart"></canvas>
         </div>
         <div class="chart-box">
-          <div class="chart-title">Top Tools <span class="chart-title-note">log scale</span></div>
+          <div class="chart-title">Top Tools</div>
           ${d.tools.length ? '<canvas id="toolsChart"></canvas>' : '<div class="card-sub">No tool calls in this range</div>'}
         </div>
       </div>
 
       <div class="charts-row" style="grid-template-columns:${showWeekly ? '3fr 2fr' : '1fr'}">
         <div class="chart-box">
-          <div class="chart-title">Activity Heatmap (cost by hour) <span class="chart-title-note">${d.heatmapWindow.from} &rarr; ${d.heatmapWindow.to}</span></div>
-          ${buildHeatmap(d.heatmap)}
+          <div class="chart-title">Activity Heatmap (cost by hour) <span class="chart-title-note">${isoDayLabel(d.heatmapDays[0])} &rarr; ${isoDayLabel(d.heatmapDays[d.heatmapDays.length - 1])}</span></div>
+          ${buildHeatmap(d.heatmap, d.heatmapDays, d.heatmapToday)}
         </div>
         ${
           showWeekly
@@ -895,7 +902,7 @@ function renderSessions() {
   if (sessionsData.length === 0) {
     el.innerHTML = `<div class="dashboard-content">
       <div class="breadcrumb">
-        ${parentBreadcrumb()}
+        ${PARENT_BREADCRUMB}
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
@@ -907,7 +914,7 @@ function renderSessions() {
   el.innerHTML = `
     <div class="dashboard-content">
       <div class="breadcrumb">
-        ${parentBreadcrumb()}
+        ${PARENT_BREADCRUMB}
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
       </div>
@@ -983,7 +990,7 @@ function renderDetail() {
   el.innerHTML = `
     <div class="dashboard-content">
       <div class="breadcrumb">
-        ${parentBreadcrumb()}
+        ${PARENT_BREADCRUMB}
         <span class="sep">/</span>
         <a onclick="navigateToSessions('${escAttrJs(d.encodedProjectPath)}', '${escAttrJs(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
@@ -1178,19 +1185,30 @@ function isDecade(v) {
 
 // maxValue caps the axis at the largest bar and labels it, so the longest bar ends at a
 // readable number instead of running past the last decade tick.
-function logAxis(xDefaults, gridColor, maxValue) {
+function logAxis(xDefaults, maxValue) {
   const labeled = (v) => isDecade(v) || v === maxValue;
   return {
     ...xDefaults,
     type: 'logarithmic',
     min: 1,
     ...(maxValue > 1 ? { max: maxValue } : {}),
+    // Chart.js doesn't always emit a tick at the axis max — force one so the longest bar ends
+    // at its real value, and drop a decade tick sitting close enough to collide with its label.
+    afterBuildTicks: (scale) => {
+      if (maxValue <= 1) return;
+      scale.ticks = scale.ticks.filter(
+        (t) => t.value !== maxValue && !(isDecade(t.value) && Math.abs(Math.log10(maxValue / t.value)) < 0.25),
+      );
+      scale.ticks.push({ value: maxValue });
+    },
     grid: {
       ...xDefaults.grid,
-      color: (ctx) => (ctx.tick && labeled(ctx.tick.value) ? gridColor : 'transparent'),
+      color: (ctx) => (ctx.tick && labeled(ctx.tick.value) ? xDefaults.grid.color : 'transparent'),
     },
     ticks: {
       ...xDefaults.ticks,
+      // autoSkip would drop the forced max tick before it ever renders.
+      autoSkip: false,
       callback: (v) => (labeled(v) ? formatTokens(v) : ''),
     },
   };
@@ -1209,6 +1227,10 @@ function barDataset(data, color) {
 function withTooltip(defaults, callbacks) {
   return { ...defaults.plugins, tooltip: { ...defaults.plugins.tooltip, callbacks } };
 }
+
+// Exact dollars for cost axes and their tooltips — formatCost's thresholds are for cards, where
+// "<$0.01" reads better than a chart tick that has to line up with its neighbours.
+const usd = (v) => `$${v.toFixed(2)}`;
 
 function destroyChart(id) {
   if (charts[id]) {
@@ -1258,16 +1280,12 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost', dist
       interaction: { mode: 'nearest', intersect: true },
       events: [],
       plugins: {
-        ...defaults.plugins,
+        ...withTooltip(defaults, { label: (ctx) => usd(ctx.parsed.y) }),
         // events: [] disables tooltips, so the legend is the only place segment names show.
         legend: {
           display: models.length > 1,
           position: 'bottom',
           labels: { color: c.text, font: { size: 9 }, boxWidth: 8, boxHeight: 8 },
-        },
-        tooltip: {
-          ...defaults.plugins.tooltip,
-          callbacks: { label: (ctx) => `$${ctx.parsed.y.toFixed(2)}` },
         },
       },
       scales: {
@@ -1276,7 +1294,7 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost', dist
         y: {
           ...defaults.scales.y,
           stacked: true,
-          ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` },
+          ticks: { ...defaults.scales.y.ticks, callback: usd },
         },
       },
     },
@@ -1312,19 +1330,9 @@ function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
       indexAxis: 'y',
       interaction: { mode: 'nearest', intersect: true },
       events: [],
-      plugins: {
-        ...defaults.plugins,
-        tooltip: {
-          ...defaults.plugins.tooltip,
-          callbacks: {
-            label: (ctx) => {
-              const val = ctx.parsed.x;
-              const pct = ((val / total) * 100).toFixed(1);
-              return `$${val.toFixed(2)} (${pct}%)`;
-            },
-          },
-        },
-      },
+      plugins: withTooltip(defaults, {
+        label: (ctx) => `${usd(ctx.parsed.x)} (${formatPct(ctx.parsed.x, total)}%)`,
+      }),
       scales: {
         ...defaults.scales,
         x: { ...defaults.scales.x, ticks: { ...defaults.scales.x.ticks, callback: (v) => `$${v}` } },
@@ -1463,14 +1471,15 @@ function renderTokenSplitChart(t) {
     options: {
       ...defaults,
       indexAxis: 'y',
+      interaction: { mode: 'index', axis: 'y', intersect: false },
       plugins: withTooltip(defaults, {
-        label: (ctx) => `${formatTokens(ctx.parsed.x)} (${total > 0 ? ((ctx.parsed.x / total) * 100).toFixed(1) : 0}%)`,
+        label: (ctx) => `${formatTokens(ctx.parsed.x)} (${formatPct(ctx.parsed.x, total)}%)`,
       }),
       scales: {
         ...defaults.scales,
         // Log scale: cache reads structurally dwarf fresh input by 3-5 orders of magnitude,
         // so a linear axis renders every other bar invisible. Tooltip carries exact values + %.
-        x: logAxis(defaults.scales.x, c.border, Math.max(...rows.map((r) => r[1]))),
+        x: logAxis(defaults.scales.x, Math.max(...rows.map((r) => r[1]))),
       },
     },
   });
@@ -1503,16 +1512,16 @@ function renderToolsChart(tools) {
     options: {
       ...defaults,
       indexAxis: 'y',
+      // Row-wise hit testing, so the tooltip also opens over the axis label and the empty
+      // space past a short bar — the label is where the eye goes for a truncated MCP name.
+      interaction: { mode: 'index', axis: 'y', intersect: false },
       plugins: withTooltip(defaults, {
         title: (items) => top[items[0].dataIndex]?.name || '',
         label: (ctx) => `${ctx.parsed.x} calls`,
       }),
       scales: {
         ...defaults.scales,
-        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y?.ticks, autoSkip: false } },
-        // Same rationale as the token chart: Bash dwarfs the tail by orders of magnitude,
-        // so a linear axis flattens every other tool's bar.
-        x: logAxis(defaults.scales.x, c.border, top[0].count),
+        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y.ticks, autoSkip: false } },
       },
     },
   });
@@ -1539,10 +1548,10 @@ function renderWeeklyChart(weekly) {
     },
     options: {
       ...defaults,
-      plugins: withTooltip(defaults, { label: (ctx) => `$${ctx.parsed.y.toFixed(2)}` }),
+      plugins: withTooltip(defaults, { label: (ctx) => usd(ctx.parsed.y) }),
       scales: {
         ...defaults.scales,
-        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` } },
+        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y.ticks, callback: usd } },
       },
     },
   });
@@ -2006,6 +2015,7 @@ async function navigateToDetail(sessionId) {
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 function sortBy(field) {
   const s = currentSort();
+  if (!s) return;
   if (s.field === field) {
     s.order = s.order === 'desc' ? 'asc' : 'desc';
   } else {
@@ -2222,23 +2232,21 @@ function activateSelectedRow() {
 }
 
 async function goBack() {
-  if (currentView === 'insights') {
-    // Sibling views, not a drill-down: the scope survives a tab switch.
-    await navigate('overview');
-    focusPreviousRow('overview');
-    return;
-  }
-
   let target;
   if (currentView === 'detail') {
     target = currentProjectPath ? 'sessions' : 'overview';
-  } else if (currentView === 'sessions') {
+  } else if (currentView === 'sessions' || currentView === 'insights') {
     target = 'overview';
   }
   if (!target) return;
 
+  // Insights is a sibling view, not a drill-down: the scope survives a tab switch.
+  const keepScope = currentView === 'insights';
+
   if (target === 'sessions') {
     await navigate('sessions', { project: currentProjectPath, projectName: currentProjectName });
+  } else if (keepScope) {
+    await navigate(target);
   } else {
     // Backing out to a top-level view drops the scope with the cursor: a scoped overview
     // showing one project has no visible cause once you've left that project behind.

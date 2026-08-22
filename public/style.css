@@ -285,6 +285,41 @@ body {
   }
 }
 
+/* Root-level view switcher, rendered by the overview and insights views rather than the topbar
+   itself — drill-down views show a breadcrumb in its place. Reuses --accent-dim/--accent-text,
+   so no LIGHT_THEME rule is needed. */
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.view-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+}
+
+.view-tab.on {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+}
+
 /* #endregion */
 
 /* #region DATE_PICKER */
@@ -700,6 +735,12 @@ body {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+.chart-title-note {
+  color: var(--text-muted);
+  font-weight: 400;
+  float: right;
 }
 
 /* #endregion */
@@ -1167,44 +1208,6 @@ body {
 
 /* #region INSIGHTS */
 
-.view-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.view-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-tertiary);
-  font-family: var(--mono);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 8px 14px;
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.view-tab:hover {
-  color: var(--text-primary);
-}
-
-.view-tab.on {
-  color: var(--accent-text);
-  border-bottom-color: var(--accent);
-}
-
-.chart-title-note {
-  color: var(--text-muted);
-  font-weight: 400;
-  float: right;
-}
-
 .heatmap {
   display: flex;
   flex-direction: column;
@@ -1213,9 +1216,18 @@ body {
 
 .hm-row {
   display: grid;
-  grid-template-columns: 34px repeat(24, 1fr);
+  grid-template-columns: 48px repeat(24, 1fr);
   gap: 3px;
   align-items: center;
+}
+
+.hm-row.hm-today .hm-day {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.hm-row.hm-today .hm-cell {
+  outline: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .hm-day,
@@ -1260,7 +1272,7 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   font-family: var(--mono);
   pointer-events: none;
 }

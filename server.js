@@ -487,8 +487,7 @@ async function loadProjectData(files, pricing) {
         const dupTools = extractTools(parsed.message?.content);
         if (dupTools) {
           const orig = seen.get(hash);
-          if (orig.tools) orig.tools.push(...dupTools);
-          else orig.tools = dupTools;
+          orig.tools = (orig.tools || []).concat(dupTools);
         }
         return;
       }
@@ -962,12 +961,15 @@ async function getSessionDetailData(sessionId) {
 // activity (floored to the hour, mirroring ccusage) and spans exactly 5h; activity past the end
 // opens a new block anchored to its own hour.
 const BLOCK_MS = 5 * 60 * 60 * 1000;
+const HEATMAP_DAYS = 7;
+const MAX_BLOCKS = 24;
+const MAX_TOOLS = 20;
 
 // The real window boundary comes from Claude Code's statusline payload (rate_limits.five_hour),
 // spied to disk by the cck plugin. The ccusage hour-floor heuristic can be hours off the actual
 // API window, so when a live resets_at is available it anchors the active block instead.
 function readRateLimits(now) {
-  const dir = path.join(os.homedir(), '.claude', '.cck', 'context-status');
+  const dir = path.join(CLAUDE_DIR, '.cck', 'context-status');
   let newest = null;
   try {
     for (const f of fs.readdirSync(dir)) {
@@ -985,7 +987,7 @@ function readRateLimits(now) {
     const fh = rl?.five_hour;
     // A resets_at in the past means the snapshot predates the current window — don't trust it.
     if (!fh?.resets_at || fh.resets_at * 1000 <= now.getTime()) return null;
-    return { fiveHour: { usedPct: fh.used_percentage ?? null, resetsAtMs: fh.resets_at * 1000 } };
+    return { usedPct: fh.used_percentage ?? null, resetsAtMs: fh.resets_at * 1000 };
   } catch { return null; }
 }
 
@@ -1020,6 +1022,8 @@ function computeBlocks(messages, now, realResetMs) {
   }
   const nowMs = now.getTime();
   return blocks
+    .reverse()
+    .slice(0, MAX_BLOCKS)
     .map((b) => {
       const endMs = b.startMs + BLOCK_MS;
       // Only the API-anchored window counts as active: the hour-floor heuristic can be hours
@@ -1045,8 +1049,7 @@ function computeBlocks(messages, now, realResetMs) {
             }
           : null,
       };
-    })
-    .reverse();
+    });
 }
 
 async function getInsightsData(range, projectFilter) {
@@ -1057,48 +1060,60 @@ async function getInsightsData(range, projectFilter) {
   const pricing = await fetchPricing();
   const w = resolveWindow(range);
 
-  // The heatmap always covers 30 days ending at the selected window's end — a short range
-  // (today, 3d) would otherwise leave most of the 7×24 grid empty and look broken.
+  // The heatmap covers the last 7 real days ending at the selected window's end — each row
+  // is an actual date, so a short range (today, 3d) still shows a full week of context.
   const windowEnd = w.end < w.now ? w.end : w.now;
-  const hmStart = new Date(windowEnd.getTime() - 30 * 86400000);
+  const hmStart = new Date(windowEnd);
+  hmStart.setHours(0, 0, 0, 0);
+  hmStart.setDate(hmStart.getDate() - (HEATMAP_DAYS - 1));
   const hmStartStr = hmStart.toISOString();
   const scanCutoff = w.cutoff === null ? null : w.cutoff < hmStart ? w.cutoff : hmStart;
   const projects = scanProjectDirs(scanCutoff, projectFilter);
 
+  // When the cost window already covers the heatmap window, the heatmap rows are a subset of
+  // `all` — filter it instead of re-scanning every session a second time.
+  const hmInAll = w.cutoff === null || w.cutoff <= hmStart;
   const allParts = [];
   const hmParts = [];
   for (const [, proj] of projects) {
     const sessions = await loadProjectData(proj.files, pricing);
     for (const [, session] of sessions) {
       allParts.push(filterWindow(session.messages, w.cutoffStr, w.endStr));
-      hmParts.push(filterWindow(session.messages, hmStartStr, w.endStr));
+      if (!hmInAll) hmParts.push(filterWindow(session.messages, hmStartStr, w.endStr));
     }
   }
-  const hmMsgs = hmParts.flat();
-  const all = allParts.flat().sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+  const all = allParts.flat().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const hmMsgs = hmInAll ? all.filter((m) => m.timestamp >= hmStartStr) : hmParts.flat();
 
   const sum = summarizeMessages(all);
-  const totalCost = sum.totalCost;
   const tokens = { input: sum.inputTokens, output: sum.outputTokens, cacheCreation: sum.cacheCreationTokens, cacheRead: sum.cacheReadTokens };
   let cacheSavings = 0;
-  // Monday-first to match the date picker's grid.
-  const heatmap = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  // One row per real day, oldest first; row index = whole days since hmStart.
+  const heatmap = Array.from({ length: HEATMAP_DAYS }, () => new Array(24).fill(0));
+  const heatmapDays = Array.from({ length: HEATMAP_DAYS }, (_, i) => {
+    const d = new Date(hmStart);
+    d.setDate(d.getDate() + i);
+    return localDateStr(d);
+  });
   const toolCounts = {};
   let mainCost = 0;
   let subagentCost = 0;
   const weekly = {};
 
+  // getModelPricing falls back to a linear scan of the whole LiteLLM map on a miss, so resolve
+  // it once per distinct model rather than once per message.
+  const priceMemo = new Map();
   for (const m of all) {
     // What the same tokens would have cost as fresh input, minus what cache reads actually cost.
     if (m.cacheReadTokens > 0) {
-      const mp = getModelPricing(pricing, m.model);
+      if (!priceMemo.has(m.model)) priceMemo.set(m.model, getModelPricing(pricing, m.model));
+      const mp = priceMemo.get(m.model);
       if (mp?.input_cost_per_token != null && mp?.cache_read_input_token_cost != null) {
         cacheSavings += m.cacheReadTokens * (mp.input_cost_per_token - mp.cache_read_input_token_cost);
       }
     }
 
-    const d = new Date(m.timestamp);
-    const monday = new Date(d);
+    const monday = new Date(m.timestamp);
     monday.setHours(0, 0, 0, 0);
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const wk = localDateStr(monday);
@@ -1114,32 +1129,37 @@ async function getInsightsData(range, projectFilter) {
 
   for (const m of hmMsgs) {
     const d = new Date(m.timestamp);
-    heatmap[(d.getDay() + 6) % 7][d.getHours()] += m.cost;
+    const day = new Date(d);
+    day.setHours(0, 0, 0, 0);
+    // Round to survive DST shifts making a "day" 23/25 hours.
+    const idx = Math.round((day - hmStart) / 86400000);
+    if (idx >= 0 && idx < HEATMAP_DAYS) heatmap[idx][d.getHours()] += m.cost;
   }
 
   const limits = readRateLimits(w.now);
   // A window ending in the past has no "current" block — don't synthesize the live window there.
-  const blocks = computeBlocks(all, w.now, w.hasToday ? limits?.fiveHour?.resetsAtMs || null : null);
+  const blocks = computeBlocks(all, w.now, w.hasToday ? limits?.resetsAtMs || null : null);
   const activeBlk = blocks.find((b) => b.active);
-  if (activeBlk) activeBlk.usedPct = limits?.fiveHour?.usedPct ?? null;
+  if (activeBlk) activeBlk.usedPct = limits?.usedPct ?? null;
 
   // Run-rate over the window actually observed: a custom window ending in the past uses its own
   // span; open-ended ranges run from the first message (all-time) or the cutoff to now.
   const windowStart = w.cutoff || (all.length ? new Date(all[0].timestamp) : w.now);
   const dayCount = Math.max(1, Math.ceil((windowEnd - windowStart) / 86400000));
-  const dailyAvg = totalCost / dayCount;
+  const dailyAvg = sum.totalCost / dayCount;
 
   const result = {
-    totalCost,
     tokens,
     cacheSavings,
     runRate: { dailyAvg, projectedMonthly: dailyAvg * 30, days: dayCount },
-    blocks: blocks.slice(0, 24),
+    blocks,
     heatmap,
-    heatmapWindow: { from: localDateStr(hmStart), to: localDateStr(windowEnd) },
+    heatmapDays,
+    heatmapToday: localDateStr(w.now),
     tools: Object.entries(toolCounts)
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count),
+      .sort((a, b) => b.count - a.count)
+      .slice(0, MAX_TOOLS),
     subagents: { mainCost, subagentCost },
     weekly: Object.entries(weekly)
       .sort(([a], [b]) => a.localeCompare(b))
