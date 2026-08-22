@@ -446,7 +446,8 @@ async function loadSubagentData(subagentInfos, pricing) {
 
 async function loadProjectData(files, pricing) {
   const sessions = new Map();
-  const seen = new Set();
+  // hash -> pushed message, so tool_use blocks from duplicate lines can be folded in.
+  const seen = new Map();
 
   for (const file of files) {
     const sessionId = getSessionIdFromFile(file);
@@ -479,8 +480,18 @@ async function loadProjectData(files, pricing) {
       if (!parsed.timestamp) return;
 
       const hash = createDedupeHash(parsed);
-      if (hash && seen.has(hash)) return;
-      if (hash) seen.add(hash);
+      if (hash && seen.has(hash)) {
+        // Streaming writes one JSONL line per content block of the same API message. Usage is
+        // identical on every line (deduped), but each line carries different tool_use blocks,
+        // so tools must be unioned across duplicates or most calls are lost.
+        const dupTools = extractTools(parsed.message?.content);
+        if (dupTools) {
+          const orig = seen.get(hash);
+          if (orig.tools) orig.tools.push(...dupTools);
+          else orig.tools = dupTools;
+        }
+        return;
+      }
 
       const cost = calculateEntryCost(parsed, pricing);
       const usage = parsed.message.usage;
@@ -497,7 +508,7 @@ async function loadProjectData(files, pricing) {
       if (!session.firstTimestamp || ts < session.firstTimestamp) session.firstTimestamp = ts;
       if (!session.lastTimestamp || ts > session.lastTimestamp) session.lastTimestamp = ts;
 
-      session.messages.push({
+      const msg = {
         timestamp: ts,
         model,
         cost,
@@ -507,7 +518,9 @@ async function loadProjectData(files, pricing) {
         cacheReadTokens: usage.cache_read_input_tokens || 0,
         speed: usage.speed || 'standard',
         tools: extractTools(parsed.message?.content),
-      });
+      };
+      session.messages.push(msg);
+      if (hash) seen.set(hash, msg);
 
       // Capture first user prompt from the JSONL (look for human/user messages)
       if (!session.firstPrompt && parsed.type === 'human' && parsed.message?.content) {
@@ -945,6 +958,198 @@ async function getSessionDetailData(sessionId) {
   return null;
 }
 
+// Claude's usage limits work in rolling 5-hour billing windows. A block starts at the first
+// activity (floored to the hour, mirroring ccusage) and spans exactly 5h; activity past the end
+// opens a new block anchored to its own hour.
+const BLOCK_MS = 5 * 60 * 60 * 1000;
+
+// The real window boundary comes from Claude Code's statusline payload (rate_limits.five_hour),
+// spied to disk by the cck plugin. The ccusage hour-floor heuristic can be hours off the actual
+// API window, so when a live resets_at is available it anchors the active block instead.
+function readRateLimits(now) {
+  const dir = path.join(os.homedir(), '.claude', '.cck', 'context-status');
+  let newest = null;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      const fp = path.join(dir, f);
+      try {
+        const mtime = fs.statSync(fp).mtimeMs;
+        if (!newest || mtime > newest.mtime) newest = { fp, mtime };
+      } catch { /* ignore */ }
+    }
+  } catch { return null; }
+  if (!newest) return null;
+  try {
+    const rl = JSON.parse(fs.readFileSync(newest.fp, 'utf8'))?.rate_limits;
+    const fh = rl?.five_hour;
+    // A resets_at in the past means the snapshot predates the current window — don't trust it.
+    if (!fh?.resets_at || fh.resets_at * 1000 <= now.getTime()) return null;
+    return { fiveHour: { usedPct: fh.used_percentage ?? null, resetsAtMs: fh.resets_at * 1000 } };
+  } catch { return null; }
+}
+
+function computeBlocks(messages, now, realResetMs) {
+  // When the API told us the live window, the active block spans exactly [reset-5h, reset].
+  const activeStartMs = realResetMs && now.getTime() < realResetMs ? realResetMs - BLOCK_MS : null;
+  const blocks = [];
+  let cur = null;
+  for (const m of messages) {
+    const t = new Date(m.timestamp).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (activeStartMs !== null && t >= activeStartMs) {
+      if (!cur || cur.startMs !== activeStartMs) {
+        cur = { startMs: activeStartMs, real: true, lastMs: t, cost: 0, tokens: 0, messageCount: 0, models: new Set() };
+        blocks.push(cur);
+      }
+    } else if (!cur || t >= cur.startMs + BLOCK_MS) {
+      const start = new Date(t);
+      start.setMinutes(0, 0, 0);
+      cur = { startMs: start.getTime(), lastMs: t, cost: 0, tokens: 0, messageCount: 0, models: new Set() };
+      blocks.push(cur);
+    }
+    if (t > cur.lastMs) cur.lastMs = t;
+    cur.cost += m.cost;
+    cur.tokens += m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+    cur.messageCount++;
+    if (isRealModel(m.model)) cur.models.add(m.model);
+  }
+  // A live window with no in-range messages yet still exists — surface it as an empty block.
+  if (activeStartMs !== null && !blocks.some((b) => b.startMs === activeStartMs)) {
+    blocks.push({ startMs: activeStartMs, real: true, lastMs: activeStartMs, cost: 0, tokens: 0, messageCount: 0, models: new Set() });
+  }
+  const nowMs = now.getTime();
+  return blocks
+    .map((b) => {
+      const endMs = b.startMs + BLOCK_MS;
+      // Only the API-anchored window counts as active: the hour-floor heuristic can be hours
+      // off the real boundary, so without live data no block is presented as current.
+      const active = b.real === true && nowMs < endMs;
+      // Floored at 1 so a block opened seconds ago doesn't project an absurd rate.
+      const elapsedMin = active ? Math.max(1, (nowMs - b.startMs) / 60000) : null;
+      return {
+        start: new Date(b.startMs).toISOString(),
+        end: new Date(endMs).toISOString(),
+        lastActivity: new Date(b.lastMs).toISOString(),
+        cost: b.cost,
+        tokens: b.tokens,
+        messageCount: b.messageCount,
+        models: [...b.models],
+        active,
+        burn: active
+          ? {
+              costPerHour: (b.cost / elapsedMin) * 60,
+              tokensPerMin: b.tokens / elapsedMin,
+              projectedCost: (b.cost / elapsedMin) * (BLOCK_MS / 60000),
+              remainingMin: Math.round((endMs - nowMs) / 60000),
+            }
+          : null,
+      };
+    })
+    .reverse();
+}
+
+async function getInsightsData(range, projectFilter) {
+  const cacheKey = `insights_${rangeKey(range)}_${projectFilter || 'all'}`;
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const pricing = await fetchPricing();
+  const w = resolveWindow(range);
+
+  // The heatmap always covers 30 days ending at the selected window's end — a short range
+  // (today, 3d) would otherwise leave most of the 7×24 grid empty and look broken.
+  const windowEnd = w.end < w.now ? w.end : w.now;
+  const hmStart = new Date(windowEnd.getTime() - 30 * 86400000);
+  const hmStartStr = hmStart.toISOString();
+  const scanCutoff = w.cutoff === null ? null : w.cutoff < hmStart ? w.cutoff : hmStart;
+  const projects = scanProjectDirs(scanCutoff, projectFilter);
+
+  const allParts = [];
+  const hmParts = [];
+  for (const [, proj] of projects) {
+    const sessions = await loadProjectData(proj.files, pricing);
+    for (const [, session] of sessions) {
+      allParts.push(filterWindow(session.messages, w.cutoffStr, w.endStr));
+      hmParts.push(filterWindow(session.messages, hmStartStr, w.endStr));
+    }
+  }
+  const hmMsgs = hmParts.flat();
+  const all = allParts.flat().sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+
+  const sum = summarizeMessages(all);
+  const totalCost = sum.totalCost;
+  const tokens = { input: sum.inputTokens, output: sum.outputTokens, cacheCreation: sum.cacheCreationTokens, cacheRead: sum.cacheReadTokens };
+  let cacheSavings = 0;
+  // Monday-first to match the date picker's grid.
+  const heatmap = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  const toolCounts = {};
+  let mainCost = 0;
+  let subagentCost = 0;
+  const weekly = {};
+
+  for (const m of all) {
+    // What the same tokens would have cost as fresh input, minus what cache reads actually cost.
+    if (m.cacheReadTokens > 0) {
+      const mp = getModelPricing(pricing, m.model);
+      if (mp?.input_cost_per_token != null && mp?.cache_read_input_token_cost != null) {
+        cacheSavings += m.cacheReadTokens * (mp.input_cost_per_token - mp.cache_read_input_token_cost);
+      }
+    }
+
+    const d = new Date(m.timestamp);
+    const monday = new Date(d);
+    monday.setHours(0, 0, 0, 0);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const wk = localDateStr(monday);
+    weekly[wk] = (weekly[wk] || 0) + m.cost;
+
+    if (m._subagent) {
+      subagentCost += m.cost;
+    } else {
+      mainCost += m.cost;
+      if (m.tools) for (const t of m.tools) toolCounts[t] = (toolCounts[t] || 0) + 1;
+    }
+  }
+
+  for (const m of hmMsgs) {
+    const d = new Date(m.timestamp);
+    heatmap[(d.getDay() + 6) % 7][d.getHours()] += m.cost;
+  }
+
+  const limits = readRateLimits(w.now);
+  // A window ending in the past has no "current" block — don't synthesize the live window there.
+  const blocks = computeBlocks(all, w.now, w.hasToday ? limits?.fiveHour?.resetsAtMs || null : null);
+  const activeBlk = blocks.find((b) => b.active);
+  if (activeBlk) activeBlk.usedPct = limits?.fiveHour?.usedPct ?? null;
+
+  // Run-rate over the window actually observed: a custom window ending in the past uses its own
+  // span; open-ended ranges run from the first message (all-time) or the cutoff to now.
+  const windowStart = w.cutoff || (all.length ? new Date(all[0].timestamp) : w.now);
+  const dayCount = Math.max(1, Math.ceil((windowEnd - windowStart) / 86400000));
+  const dailyAvg = totalCost / dayCount;
+
+  const result = {
+    totalCost,
+    tokens,
+    cacheSavings,
+    runRate: { dailyAvg, projectedMonthly: dailyAvg * 30, days: dayCount },
+    blocks: blocks.slice(0, 24),
+    heatmap,
+    heatmapWindow: { from: localDateStr(hmStart), to: localDateStr(windowEnd) },
+    tools: Object.entries(toolCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count),
+    subagents: { mainCost, subagentCost },
+    weekly: Object.entries(weekly)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([weekStart, cost]) => ({ weekStart, cost })),
+  };
+
+  setCache(cacheKey, result);
+  return result;
+}
+
 // #endregion
 
 // #region EXPRESS
@@ -1029,6 +1234,18 @@ app.get('/api/overview', withRange(30), async (req, res) => {
   } catch (err) {
     console.error('[API] overview error:', err);
     res.status(500).json({ error: 'Failed to load overview data' });
+  }
+});
+
+app.get('/api/insights', withRange(30), async (req, res) => {
+  try {
+    const project = parseProject(req.query.project);
+    if (project === null) return res.status(400).json({ error: 'Invalid project' });
+    const data = await getInsightsData(req.range, project);
+    res.json(data);
+  } catch (err) {
+    console.error('[API] insights error:', err);
+    res.status(500).json({ error: 'Failed to load insights data' });
   }
 });
 

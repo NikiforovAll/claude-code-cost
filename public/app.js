@@ -2,7 +2,7 @@
 
 let currentView = 'overview';
 let overviewData = null;
-let projectsData = null;
+let insightsData = null;
 let sessionsData = null;
 let sessionsCostSeries = null;
 let sessionsModelDistribution = null;
@@ -15,12 +15,10 @@ let currentProjectName = null;
 let scopeProject = null;
 let scopeProjectName = null;
 let currentSessionId = null;
-let parentView = 'projects';
 let lastSelectedProject = null;
 let lastSelectedSession = null;
 const DEFAULT_SORT = {
   overview: { field: 'totalCost', order: 'desc' },
-  projects: { field: 'lastActive', order: 'desc' },
   sessions: { field: 'lastTimestamp', order: 'desc' },
 };
 const viewSort = structuredClone(DEFAULT_SORT);
@@ -177,8 +175,7 @@ function thClass(field) {
 }
 
 function parentBreadcrumb() {
-  const label = parentView === 'overview' ? 'Overview' : 'Projects';
-  return `<a class="parent-breadcrumb">${label}</a>`;
+  return `<a class="parent-breadcrumb">Overview</a>`;
 }
 
 // In-view reminder that the numbers below cover one project, not everything. Reuses the
@@ -192,9 +189,17 @@ function scopeIndicator() {
     </div>`;
 }
 
+// Top-level view switcher shared by the two sibling views. Drill-down views (sessions, detail)
+// keep their breadcrumb instead — tabs only make sense at the root.
+function viewTabs(active) {
+  const tab = (id, label) =>
+    `<button class="view-tab${active === id ? ' on' : ''}" onclick="navigate('${id}')">${label}</button>`;
+  return `<div class="view-tabs">${tab('overview', 'Overview')}${tab('insights', 'Insights')}</div>`;
+}
+
 function focusPreviousRow(view) {
   let selector;
-  if (view === 'overview' || view === 'projects') {
+  if (view === 'overview') {
     if (!lastSelectedProject) return;
     selector = `tr[onclick*="'${lastSelectedProject}'"]`;
   } else if (view === 'sessions') {
@@ -219,12 +224,13 @@ function getUrlState() {
     const saved = sessionStorage.getItem('cc-cost:nav');
     if (saved) p = new URLSearchParams(saved);
   }
+  const view = p.get('view') || 'overview';
   return {
-    view: p.get('view') || 'overview',
+    // Old bookmarks may still say view=projects; that view is gone, overview covers it.
+    view: view === 'projects' ? 'overview' : view,
     project: p.get('project'),
     projectName: p.get('projectName'),
     session: p.get('session'),
-    parentView: p.get('parentView') || 'projects',
   };
 }
 
@@ -405,7 +411,6 @@ function updateUrl() {
   if (currentProjectPath) p.set('project', currentProjectPath);
   if (currentProjectName) p.set('projectName', currentProjectName);
   if (currentSessionId) p.set('session', currentSessionId);
-  if (parentView !== 'projects') p.set('parentView', parentView);
   const qs = p.toString();
   history.replaceState(null, '', qs ? `?${qs}` : '/');
   sessionStorage.setItem('cc-cost:nav', qs);
@@ -507,6 +512,10 @@ async function fetchOverview() {
   overviewData = await fetchJSON(`/api/overview?${rangeParams()}${scopeParam()}`);
 }
 
+async function fetchInsights() {
+  insightsData = await fetchJSON(`/api/insights?${rangeParams()}${scopeParam()}`);
+}
+
 // Fire-and-forget label upgrade: /api/projects/:path/sessions carries no project name, so ask
 // the scoped projects endpoint (one row) for the decoded one.
 async function resolveScopeName() {
@@ -526,10 +535,6 @@ async function resolveScopeName() {
   } catch {
     /* label stays encoded — cosmetic only */
   }
-}
-
-async function fetchProjects() {
-  projectsData = await fetchJSON(`/api/projects?${rangeParams()}${scopeParam()}`);
 }
 
 async function fetchSessions(encodedPath) {
@@ -573,6 +578,7 @@ function renderOverview() {
   // Return before any chart call so no canvas is touched — there are none in this markup.
   if (scopeProject && s.totalSessions === 0) {
     el.innerHTML = `<div class="dashboard-content">
+      ${viewTabs('overview')}
       ${scopeIndicator()}
       <div class="empty-state">
         <div class="empty-icon">$</div>
@@ -585,6 +591,7 @@ function renderOverview() {
 
   el.innerHTML = `
     <div class="dashboard-content">
+      ${viewTabs('overview')}
       ${scopeIndicator()}
       <div class="cards-row">
         ${
@@ -644,6 +651,7 @@ function renderOverview() {
           <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
           <th class="${thClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions ${sortArrow('sessionCount')}</th>
           <th class="${thClass('lastActive')}" onclick="sortBy('lastActive')">Last Active ${sortArrow('lastActive')}</th>
+          <th>Model</th>
         </tr></thead>
         <tbody>
           ${[...overviewData.projects]
@@ -655,6 +663,7 @@ function renderOverview() {
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
               <td>${p.sessionCount}</td>
               <td class="muted">${timeAgo(p.lastActive)}</td>
+              <td><span class="model-badge">${esc(shortModel(p.primaryModel))}</span></td>
             </tr>`,
             )
             .join('')}
@@ -673,65 +682,198 @@ function renderOverview() {
 
 // #endregion
 
-// #region RENDER_PROJECTS
+// #region RENDER_INSIGHTS
 
-function renderProjects() {
-  const el = document.getElementById('projects-view');
+const HEATMAP_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Columns start at 6 AM so the typical workday sits left-of-center instead of the dead
+// early-morning hours.
+const HEATMAP_START_HOUR = 6;
+
+function ampm(h) {
+  if (h === 0) return '12am';
+  if (h === 12) return '12pm';
+  return h < 12 ? `${h}am` : `${h - 12}pm`;
+}
+
+function buildHeatmap(hm) {
+  const max = Math.max(...hm.flat(), 0);
+  if (max === 0) return '<div class="empty-state"><div>No activity in this range</div></div>';
+  const hourAt = (col) => (col + HEATMAP_START_HOUR) % 24;
+  const hours = Array.from(
+    { length: 24 },
+    (_, col) => `<span class="hm-hour">${hourAt(col) % 3 === 0 ? ampm(hourAt(col)) : ''}</span>`,
+  ).join('');
+  const rows = hm
+    .map(
+      (row, d) => `
+    <div class="hm-row">
+      <span class="hm-day">${HEATMAP_DAYS[d]}</span>
+      ${row
+        .map((_, col) => {
+          const h = hourAt(col);
+          const cost = row[h];
+          return `
+        <span class="hm-cell" data-hm="${d}|${h}|${cost}">
+          <i style="opacity:${cost > 0 ? Math.max(0.12, cost / max).toFixed(2) : 0}"></i>
+        </span>`;
+        })
+        .join('')}
+    </div>`,
+    )
+    .join('');
+  return `<div class="heatmap">${rows}<div class="hm-row"><span class="hm-day"></span>${hours}</div></div>`;
+}
+
+// Shared floating tooltip for heatmap cells — the native title attr is too slow and unstyled.
+let hmTipEl = null;
+function initHeatmapTooltip() {
+  if (hmTipEl) return;
+  hmTipEl = document.createElement('div');
+  hmTipEl.className = 'hm-tip';
+  document.body.appendChild(hmTipEl);
+  document.addEventListener('mouseover', (e) => {
+    const cell = e.target.closest('.hm-cell[data-hm]');
+    if (!cell) {
+      hmTipEl.classList.remove('on');
+      return;
+    }
+    const [d, h, cost] = cell.dataset.hm.split('|');
+    hmTipEl.innerHTML = `<b>${formatCost(+cost)}</b><span>${HEATMAP_DAYS[+d]} ${ampm(+h)}&ndash;${ampm((+h + 1) % 24)}</span>`;
+    hmTipEl.classList.add('on');
+    const r = cell.getBoundingClientRect();
+    const tr = hmTipEl.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - tr.width / 2, window.innerWidth - tr.width - 8));
+    const top = r.top - tr.height - 6;
+    hmTipEl.style.left = `${left}px`;
+    hmTipEl.style.top = `${top < 4 ? r.bottom + 6 : top}px`;
+  });
+}
+
+// Hour-only span (e.g. "15:00–20:00") so the card makes it obvious a fresh block just opened.
+function blockHours(b) {
+  const t = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${t(b.start)}&ndash;${t(b.end)}`;
+}
+
+function blockSpanLabel(b) {
+  const opts = { month: 'short', day: 'numeric', hour: 'numeric' };
+  return `${new Date(b.start).toLocaleString(undefined, opts)} – ${new Date(b.end).toLocaleTimeString(undefined, { hour: 'numeric' })}`;
+}
+
+function renderInsights() {
+  const el = document.getElementById('insights-view');
   if (!el) return;
-  if (!projectsData) {
+  if (!insightsData) {
     el.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
     return;
   }
 
-  const h = JSON.stringify({ projectsData, sort: viewSort.projects, scopeProject, scopeProjectName });
-  if (lastRenderHash.projects === h) return;
-  lastRenderHash.projects = h;
+  const d = insightsData;
+  const h = JSON.stringify({ insightsData, scopeProject, scopeProjectName });
+  if (lastRenderHash.insights === h) return;
+  lastRenderHash.insights = h;
 
-  const sorted = [...projectsData].sort((a, b) => sortCompare(a, b, viewSort.projects.field, viewSort.projects.order));
-
-  if (sorted.length === 0) {
-    el.innerHTML = `<div class="dashboard-content">
-      ${scopeIndicator()}
-      <div class="empty-state">
-      <div class="empty-icon">$</div>
-      ${
-        scopeProject
-          ? `<div>No usage for ${esc(scopeProjectName || scopeProject)} ${esc(rangeInLabel(dateRange))}</div>
-             <div>Clear the project scope to see everything.</div>`
-          : `<div>No project data found</div>
-             <div>Make sure Claude Code session files exist in ~/.claude/projects/</div>`
-      }
-    </div></div>`;
-    return;
-  }
+  const ab = d.blocks.find((b) => b.active) || null;
+  const sub = d.subagents;
+  const agentTotal = sub.mainCost + sub.subagentCost;
+  const subPct = agentTotal > 0 ? ((sub.subagentCost / agentTotal) * 100).toFixed(1) : '0.0';
+  const showWeekly = d.weekly.length >= 3;
 
   el.innerHTML = `
     <div class="dashboard-content">
-      ${scopeProject ? scopeIndicator() : '<div class="section-title">All Projects</div>'}
+      ${viewTabs('insights')}
+      ${scopeIndicator()}
+      <div class="cards-row">
+        <div class="stat-card">
+          <div class="card-label">Active 5h Block</div>
+          <div class="card-value cost">${ab ? formatCost(ab.cost) : '—'}</div>
+          <div class="card-sub">${ab ? `${blockHours(ab)} &middot; ${formatDuration(ab.burn.remainingMin)} left${ab.usedPct != null ? ` &middot; ${ab.usedPct}% used` : ''}` : 'no live window data'}</div>
+        </div>
+        <div class="stat-card">
+          <div class="card-label">Burn Rate</div>
+          <div class="card-value">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
+          <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. ${formatCost(ab.burn.projectedCost)} by block end` : 'no active block'}</div>
+        </div>
+        <div class="stat-card">
+          <div class="card-label">Monthly Run-Rate</div>
+          <div class="card-value cost">${formatCost(d.runRate.projectedMonthly)}</div>
+          <div class="card-sub">${formatCost(d.runRate.dailyAvg)}/day over ${d.runRate.days} ${d.runRate.days === 1 ? 'day' : 'days'}</div>
+        </div>
+        <div class="stat-card">
+          <div class="card-label">Cache Savings</div>
+          <div class="card-value cost">${formatCost(d.cacheSavings)}</div>
+          <div class="card-sub">vs. uncached input &middot; ${formatTokens(d.tokens.cacheRead)} reads</div>
+        </div>
+        <div class="stat-card">
+          <div class="card-label">Subagent Share</div>
+          <div class="card-value">${subPct}%</div>
+          <div class="card-sub">${formatCost(sub.subagentCost)} of ${formatCost(agentTotal)}</div>
+        </div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-box">
+          <div class="chart-title">Token Composition <span class="chart-title-note">log scale</span></div>
+          <canvas id="tokenSplitChart"></canvas>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">Top Tools <span class="chart-title-note">log scale</span></div>
+          ${d.tools.length ? '<canvas id="toolsChart"></canvas>' : '<div class="card-sub">No tool calls in this range</div>'}
+        </div>
+      </div>
+
+      <div class="charts-row" style="grid-template-columns:${showWeekly ? '3fr 2fr' : '1fr'}">
+        <div class="chart-box">
+          <div class="chart-title">Activity Heatmap (cost by hour) <span class="chart-title-note">${d.heatmapWindow.from} &rarr; ${d.heatmapWindow.to}</span></div>
+          ${buildHeatmap(d.heatmap)}
+        </div>
+        ${
+          showWeekly
+            ? `
+        <div class="chart-box">
+          <div class="chart-title">Weekly Cost</div>
+          <canvas id="weeklyChart"></canvas>
+        </div>`
+            : ''
+        }
+      </div>
+
+      ${
+        d.blocks.length
+          ? `
+      <div class="section-title">5-Hour Billing Blocks</div>
       <table class="data-table">
         <thead><tr>
-          <th class="${thClass('name')}" onclick="sortBy('name')">Project ${sortArrow('name')}</th>
-          <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
-          <th class="${thClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions ${sortArrow('sessionCount')}</th>
-          <th class="${thClass('lastActive')}" onclick="sortBy('lastActive')">Last Active ${sortArrow('lastActive')}</th>
-          <th>Model</th>
+          <th>Block</th><th>Status</th><th>Messages</th><th>Tokens</th><th>Cost</th><th>Models</th>
         </tr></thead>
         <tbody>
-          ${sorted
+          ${d.blocks
             .map(
-              (p) => `
-            <tr data-clickable onclick="navigateToSessions('${escAttrJs(p.encodedPath)}', '${escAttrJs(p.name)}')">
-              <td>${esc(p.name)}</td>
-              <td class="cost-cell">${formatCost(p.totalCost)}</td>
-              <td>${p.sessionCount}</td>
-              <td class="muted">${timeAgo(p.lastActive)}</td>
-              <td><span class="model-badge">${esc(shortModel(p.primaryModel))}</span></td>
+              (b) => `
+            <tr>
+              <td>${blockSpanLabel(b)}</td>
+              <td>${b.active ? `<span class="block-badge active">ACTIVE &middot; ${formatDuration(b.burn.remainingMin)} left</span>` : `<span class="block-badge">ended ${timeAgo(b.lastActivity)}</span>`}</td>
+              <td>${b.messageCount}</td>
+              <td>${formatTokens(b.tokens)}</td>
+              <td class="cost-cell">${formatCost(b.cost)}</td>
+              <td>${b.models.map((m) => `<span class="model-badge">${esc(shortModel(m))}</span>`).join(' ')}</td>
             </tr>`,
             )
             .join('')}
         </tbody>
-      </table>
+      </table>`
+          : ''
+      }
+
     </div>`;
+
+  initHeatmapTooltip();
+  requestAnimationFrame(() => {
+    renderTokenSplitChart(d.tokens);
+    if (d.tools.length) renderToolsChart(d.tools);
+    if (showWeekly) renderWeeklyChart(d.weekly);
+  });
 }
 
 // #endregion
@@ -1026,6 +1168,48 @@ function chartDefaults() {
   };
 }
 
+// Chart.js log axes tick (and draw a gridline) at every 2..9 within a decade, which reads as
+// visual noise — keep labels and gridlines at powers of 10 only. Epsilon because Math.log10
+// of exact powers is not guaranteed to be integral.
+function isDecade(v) {
+  const l = Math.log10(v);
+  return Math.abs(l - Math.round(l)) < 1e-9;
+}
+
+// maxValue caps the axis at the largest bar and labels it, so the longest bar ends at a
+// readable number instead of running past the last decade tick.
+function logAxis(xDefaults, gridColor, maxValue) {
+  const labeled = (v) => isDecade(v) || v === maxValue;
+  return {
+    ...xDefaults,
+    type: 'logarithmic',
+    min: 1,
+    ...(maxValue > 1 ? { max: maxValue } : {}),
+    grid: {
+      ...xDefaults.grid,
+      color: (ctx) => (ctx.tick && labeled(ctx.tick.value) ? gridColor : 'transparent'),
+    },
+    ticks: {
+      ...xDefaults.ticks,
+      callback: (v) => (labeled(v) ? formatTokens(v) : ''),
+    },
+  };
+}
+
+function barDataset(data, color) {
+  return {
+    data,
+    backgroundColor: Array.isArray(color) ? color.map((x) => hexToRgba(x, 0.5)) : hexToRgba(color, 0.5),
+    borderColor: color,
+    borderWidth: 1.5,
+    borderRadius: 3,
+  };
+}
+
+function withTooltip(defaults, callbacks) {
+  return { ...defaults.plugins, tooltip: { ...defaults.plugins.tooltip, callbacks } };
+}
+
 function destroyChart(id) {
   if (charts[id]) {
     charts[id].destroy();
@@ -1245,6 +1429,120 @@ function renderTokenBreakdownChart(messages) {
           stacked: true,
           ticks: { ...defaults.scales.y.ticks, callback: (v) => formatTokens(v) },
         },
+      },
+    },
+  });
+}
+
+function renderTokenSplitChart(t) {
+  const canvas = document.getElementById('tokenSplitChart');
+  if (!canvas) return;
+  destroyChart('tokenSplit');
+
+  const c = getChartColors();
+  const defaults = chartDefaults();
+  const rows = [
+    ['Input', t.input, c.chart1],
+    ['Output', t.output, c.chart2],
+    ['Cache Write', t.cacheCreation, c.chart3],
+    ['Cache Read', t.cacheRead, c.chart4],
+  ];
+  const total = rows.reduce((s, r) => s + r[1], 0);
+
+  charts.tokenSplit = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => r[0]),
+      datasets: [
+        barDataset(
+          rows.map((r) => r[1]),
+          rows.map((r) => r[2]),
+        ),
+      ],
+    },
+    options: {
+      ...defaults,
+      indexAxis: 'y',
+      plugins: withTooltip(defaults, {
+        label: (ctx) => `${formatTokens(ctx.parsed.x)} (${total > 0 ? ((ctx.parsed.x / total) * 100).toFixed(1) : 0}%)`,
+      }),
+      scales: {
+        ...defaults.scales,
+        // Log scale: cache reads structurally dwarf fresh input by 3-5 orders of magnitude,
+        // so a linear axis renders every other bar invisible. Tooltip carries exact values + %.
+        x: logAxis(defaults.scales.x, c.border, Math.max(...rows.map((r) => r[1]))),
+      },
+    },
+  });
+}
+
+function renderToolsChart(tools) {
+  const canvas = document.getElementById('toolsChart');
+  if (!canvas || !tools?.length) return;
+  destroyChart('tools');
+
+  const c = getChartColors();
+  const defaults = chartDefaults();
+
+  // Top 8 with every label visible beats a longer list where Chart.js skips every other tick.
+  const top = tools.slice(0, 8);
+  // MCP tool names ("mcp__plugin_x__ctx_execute") are too long for axis labels — keep the tail.
+  const shortName = (n) => (n.includes('__') ? n.split('__').pop() : n);
+
+  charts.tools = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: top.map((t) => shortName(t.name)),
+      datasets: [
+        barDataset(
+          top.map((t) => t.count),
+          c.chart2,
+        ),
+      ],
+    },
+    options: {
+      ...defaults,
+      indexAxis: 'y',
+      plugins: withTooltip(defaults, {
+        title: (items) => top[items[0].dataIndex]?.name || '',
+        label: (ctx) => `${ctx.parsed.x} calls`,
+      }),
+      scales: {
+        ...defaults.scales,
+        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y?.ticks, autoSkip: false } },
+        // Same rationale as the token chart: Bash dwarfs the tail by orders of magnitude,
+        // so a linear axis flattens every other tool's bar.
+        x: logAxis(defaults.scales.x, c.border, top[0].count),
+      },
+    },
+  });
+}
+
+function renderWeeklyChart(weekly) {
+  const canvas = document.getElementById('weeklyChart');
+  if (!canvas || !weekly?.length) return;
+  destroyChart('weekly');
+
+  const c = getChartColors();
+  const defaults = chartDefaults();
+
+  charts.weekly = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: weekly.map((w) => isoDayLabel(w.weekStart)),
+      datasets: [
+        barDataset(
+          weekly.map((w) => w.cost),
+          c.chart1,
+        ),
+      ],
+    },
+    options: {
+      ...defaults,
+      plugins: withTooltip(defaults, { label: (ctx) => `$${ctx.parsed.y.toFixed(2)}` }),
+      scales: {
+        ...defaults.scales,
+        y: { ...defaults.scales.y, ticks: { ...defaults.scales.y.ticks, callback: (v) => `$${v.toFixed(2)}` } },
       },
     },
   });
@@ -1663,12 +1961,6 @@ function buildRangeMonth(y, m, nav) {
 
 // #region ROUTER
 
-function setActiveNav(view) {
-  document.querySelectorAll('.topbar-nav-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.view === view);
-  });
-}
-
 function showView(viewId) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById(viewId);
@@ -1682,7 +1974,7 @@ async function navigate(view, params) {
   if (params?.session) currentSessionId = params.session;
 
   // Clear downstream state
-  if (view === 'overview' || view === 'projects') {
+  if (view === 'overview' || view === 'insights') {
     currentProjectPath = null;
     currentProjectName = null;
     currentSessionId = null;
@@ -1691,8 +1983,6 @@ async function navigate(view, params) {
     currentSessionId = null;
   }
 
-  const navView = view === 'sessions' || view === 'detail' ? parentView : view;
-  setActiveNav(navView);
   updateUrl();
   await loadAndRender(view);
   if (view !== 'detail') selectRow(0);
@@ -1700,9 +1990,6 @@ async function navigate(view, params) {
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToSessions(encodedPath, name) {
-  if (currentView === 'overview' || currentView === 'projects') {
-    parentView = currentView;
-  }
   lastSelectedProject = encodedPath;
   currentProjectPath = encodedPath;
   currentProjectName = name;
@@ -1730,7 +2017,6 @@ function sortBy(field) {
   updateUrl();
   if (currentView === 'overview') renderOverview();
   else if (currentView === 'sessions') renderSessions();
-  else renderProjects();
 }
 
 // The one entry point for a range change, from either half of the picker. The lastRenderHash reset
@@ -1775,7 +2061,6 @@ async function applyScope(encoded, name) {
   // rows.
   sessionsData = null;
   sessionDetailData = null;
-  parentView = 'overview';
   await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
 }
 
@@ -1838,10 +2123,10 @@ async function loadAndRender(view) {
         if (myNav !== navCounter) return;
         renderOverview();
         break;
-      case 'projects':
-        await fetchProjects();
+      case 'insights':
+        await fetchInsights();
         if (myNav !== navCounter) return;
-        renderProjects();
+        renderInsights();
         break;
       case 'sessions':
         if (currentProjectPath) {
@@ -1883,7 +2168,7 @@ function renderCurrentView() {
 function ensureViewElements() {
   const app = document.getElementById('app');
   if (!app) return;
-  const views = ['overview', 'projects', 'sessions', 'detail'];
+  const views = ['overview', 'insights', 'sessions', 'detail'];
   for (const v of views) {
     if (!document.getElementById(`${v}-view`)) {
       const div = document.createElement('div');
@@ -1937,12 +2222,17 @@ function activateSelectedRow() {
 }
 
 async function goBack() {
+  if (currentView === 'insights') {
+    // Sibling views, not a drill-down: the scope survives a tab switch.
+    await navigate('overview');
+    focusPreviousRow('overview');
+    return;
+  }
+
   let target;
   if (currentView === 'detail') {
-    target = currentProjectPath ? 'sessions' : parentView;
+    target = currentProjectPath ? 'sessions' : 'overview';
   } else if (currentView === 'sessions') {
-    target = parentView;
-  } else if (currentView === 'projects') {
     target = 'overview';
   }
   if (!target) return;
@@ -1993,9 +2283,10 @@ document.addEventListener('keydown', (e) => {
     navigate('overview');
     return;
   }
+
   if (e.key === '2') {
     e.preventDefault();
-    navigate('projects');
+    navigate('insights');
     return;
   }
 
@@ -2208,9 +2499,8 @@ loadSort();
 
 document.addEventListener('click', async (e) => {
   if (e.target.matches('.parent-breadcrumb')) {
-    const target = parentView;
-    await navigate(target);
-    focusPreviousRow(target);
+    await navigate('overview');
+    focusPreviousRow('overview');
   }
 });
 
@@ -2237,20 +2527,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (state.session) {
     currentSessionId = state.session;
-    parentView = state.parentView;
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
     await navigate('detail', { session: state.session });
   } else if (state.project) {
-    parentView = state.parentView;
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
     await navigate('sessions', { project: state.project, projectName: state.projectName });
-  } else if (state.view === 'projects') {
-    await navigate('projects');
   } else if (scopeProject) {
     // Same landing rule as applyScope: a scope with no cursor of its own opens its sessions.
-    parentView = 'overview';
     currentProjectName = scopeProjectName;
     await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
   } else {
@@ -2261,7 +2546,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('popstate', () => {
   const state = getUrlState();
   currentView = state.view || 'overview';
-  parentView = state.parentView;
   currentProjectPath = state.project;
   currentProjectName = state.projectName;
   currentSessionId = state.session;

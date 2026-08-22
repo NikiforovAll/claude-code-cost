@@ -122,42 +122,8 @@ body {
   flex: 1;
 }
 
-.topbar-nav {
-  display: flex;
-  gap: 2px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.topbar-nav-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-family: var(--mono);
-  transition: all 0.15s ease;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.topbar-nav-btn:hover {
-  color: var(--text-secondary);
-}
-
-.topbar-nav-btn.active {
-  background: var(--accent-dim);
-  color: var(--accent-text);
-}
-
 /* #region SCOPE_CHIP */
 
-/* Reuses --accent-dim/--accent-text from .topbar-nav-btn.active so LIGHT_THEME needs nothing. */
 .scope-chip {
   display: flex;
   align-items: center;
@@ -1199,6 +1165,138 @@ body {
 
 /* #endregion */
 
+/* #region INSIGHTS */
+
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.view-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+}
+
+.view-tab.on {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+}
+
+.chart-title-note {
+  color: var(--text-muted);
+  font-weight: 400;
+  float: right;
+}
+
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hm-row {
+  display: grid;
+  grid-template-columns: 34px repeat(24, 1fr);
+  gap: 3px;
+  align-items: center;
+}
+
+.hm-day,
+.hm-hour {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+.hm-hour {
+  text-align: center;
+}
+
+.hm-cell {
+  position: relative;
+  aspect-ratio: 1.6;
+  min-height: 12px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.hm-cell i {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.hm-cell:hover {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.hm-tip {
+  position: fixed;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
+  font-family: var(--mono);
+  pointer-events: none;
+}
+
+.hm-tip.on {
+  display: flex;
+}
+
+.hm-tip b {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.hm-tip span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.block-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border-radius: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.block-badge.active {
+  color: var(--success);
+  background: var(--success-dim);
+}
+
+/* #endregion */
+
 /* #region LIGHT_THEME */
 
 body.light {
@@ -1258,14 +1356,6 @@ body.light {
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px 12px;
-  }
-  .topbar-nav {
-    order: 10;
-    width: 100%;
-  }
-  .topbar-nav-btn {
-    flex: 1;
-    text-align: center;
   }
   .cards-row {
     grid-template-columns: 1fr;
