@@ -819,7 +819,7 @@ function renderInsights() {
         <div class="stat-card">
           <div class="card-label">Active 5h Block</div>
           <div class="card-value cost">${ab ? formatCost(ab.cost) : '—'}</div>
-          <div class="card-sub">${ab ? `${blockHours(ab)} &middot; ${formatDuration(ab.burn.remainingMin)} left${ab.usedPct != null ? ` &middot; ${ab.usedPct}% used` : ''}` : 'no live window data'}</div>
+          <div class="card-sub">${ab ? `${blockHours(ab)} &middot; ${formatDuration(ab.burn.remainingMin)} left${ab.usedPct != null ? ` &middot; ${Math.round(ab.usedPct)}% used` : ''}` : 'no live window data'}</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Burn Rate</div>
@@ -1087,9 +1087,8 @@ function renderDetail() {
     </div>`;
 
   requestAnimationFrame(() => {
-    const parentMessages = d.messages.filter((m) => !m._subagent);
-    renderCumulativeChart(parentMessages);
-    renderTokenBreakdownChart(parentMessages);
+    renderCumulativeChart(d.messages);
+    renderTokenBreakdownChart(d.messages);
   });
 }
 
@@ -1169,6 +1168,13 @@ function hexToRgba(hex, alpha) {
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Tooltip title for per-message charts: names the subagent when the point is a folded-in agent run.
+function messageTooltipTitle(messages, items) {
+  const m = messages[items[0]?.dataIndex];
+  if (!m) return '';
+  return `#${m.index}${m._subagent ? ` · ${m._subagent.agentType}` : ''}`;
 }
 
 function chartDefaults() {
@@ -1376,7 +1382,7 @@ function renderCumulativeChart(messages) {
   charts.cumulative = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: messages.map((_, i) => i + 1),
+      labels: messages.map((m) => m.index),
       datasets: [
         {
           label: 'Cumulative Cost',
@@ -1386,13 +1392,16 @@ function renderCumulativeChart(messages) {
           fill: true,
           borderWidth: 2,
           pointRadius: messages.length > 50 ? 0 : 3,
-          pointBackgroundColor: c.accent,
+          // Subagent points render hollow so they read as folded-in cost, not main-loop turns.
+          pointBackgroundColor: messages.length > 50 ? c.accent : messages.map((m) => (m._subagent ? c.bg : c.accent)),
+          pointBorderColor: c.accent,
           tension: 0.2,
         },
       ],
     },
     options: {
       ...defaults,
+      plugins: withTooltip(defaults, { title: (items) => messageTooltipTitle(messages, items) }),
       scales: {
         ...defaults.scales,
         x: {
@@ -1416,23 +1425,39 @@ function renderTokenBreakdownChart(messages) {
   const c = getChartColors();
   const defaults = chartDefaults();
 
+  // Subagent bars render translucent so they read as folded-in usage, not main-loop turns.
+  const barColors = (hex) => {
+    const faded = hexToRgba(hex, 0.45);
+    return messages.map((m) => (m._subagent ? faded : hex));
+  };
+
   charts.tokenBreakdown = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: messages.map((_, i) => i + 1),
+      labels: messages.map((m) => m.index),
       datasets: [
-        { label: 'Input', data: messages.map((m) => m.inputTokens), backgroundColor: c.chart1, borderRadius: 2 },
-        { label: 'Output', data: messages.map((m) => m.outputTokens), backgroundColor: c.chart2, borderRadius: 2 },
+        {
+          label: 'Input',
+          data: messages.map((m) => m.inputTokens),
+          backgroundColor: barColors(c.chart1),
+          borderRadius: 2,
+        },
+        {
+          label: 'Output',
+          data: messages.map((m) => m.outputTokens),
+          backgroundColor: barColors(c.chart2),
+          borderRadius: 2,
+        },
         {
           label: 'Cache Create',
           data: messages.map((m) => m.cacheCreationTokens),
-          backgroundColor: c.chart3,
+          backgroundColor: barColors(c.chart3),
           borderRadius: 2,
         },
         {
           label: 'Cache Read',
           data: messages.map((m) => m.cacheReadTokens),
-          backgroundColor: c.chart4,
+          backgroundColor: barColors(c.chart4),
           borderRadius: 2,
         },
       ],
@@ -1440,7 +1465,7 @@ function renderTokenBreakdownChart(messages) {
     options: {
       ...defaults,
       plugins: {
-        ...defaults.plugins,
+        ...withTooltip(defaults, { title: (items) => messageTooltipTitle(messages, items) }),
         legend: {
           display: true,
           position: 'bottom',
@@ -2015,6 +2040,8 @@ async function navigate(view, params) {
   if (view === 'sessions') {
     currentSessionId = null;
   }
+  // Remember the last top-level tab so a fresh load lands on it again.
+  if (view === 'overview' || view === 'insights') localStorage.setItem('cc-cost:view', view);
 
   updateUrl();
   await loadAndRender(view);
@@ -2566,10 +2593,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
     await navigate('sessions', { project: state.project, projectName: state.projectName });
+  } else if (state.view === 'insights') {
+    await navigate('insights');
   } else if (scopeProject) {
     // Same landing rule as applyScope: a scope with no cursor of its own opens its sessions.
     currentProjectName = scopeProjectName;
     await navigate('sessions', { project: scopeProject, projectName: scopeProjectName });
+  } else if (localStorage.getItem('cc-cost:view') === 'insights') {
+    // No nav state for this tab — fall back to the last top-level tab from any session.
+    await navigate('insights');
   } else {
     await navigate('overview');
   }
