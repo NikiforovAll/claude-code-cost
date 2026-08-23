@@ -33,10 +33,10 @@ Dynamic pricing from LiteLLM (`model_prices_and_context_window.json`). Supports 
 - CSS variables for theming (shared with cck/marketplace)
 - Hub integration via `/hub-config` + `window.__HUB__`
 
-## app.js Regions
+## Regions
 
-STATE, UTILS, URL_STATE, FETCH, RENDER_OVERVIEW, RENDER_INSIGHTS, RENDER_SESSIONS, RENDER_DETAIL, CHARTS, THEME, DATE_PICKER, ROUTER, TOAST, HUB_INTEGRATION, INIT
+List them from the source rather than from this doc — a copied list drifts:
+`rg '#region' public/app.js public/style.css`
 
-## style.css Regions
-
-VARIABLES, RESET, SCROLLBAR, TOPBAR, DATE_PICKER, LAYOUT, CARDS, CHARTS, TABLE, BREADCRUMB, DETAIL, LOADING, TOAST, INSIGHTS, LIGHT_THEME, RESPONSIVE
+Find one region: `rg '#region CHARTS' public/`. Read it: from `#region` to `#endregion`.
+When changing a feature, open both the JS region and the matching CSS region — the names usually match.
