@@ -88,7 +88,8 @@ function localTime(iso, opts) {
 // call site cannot invent a sixth clamping idiom.
 function meter(pct, { label = '', cls = '', ariaLabel = '' } = {}) {
   const width = Math.min(100, Math.max(0, Number(pct) || 0)).toFixed(1);
-  return `<div class="meter${cls ? ` ${esc(cls)}` : ''}" role="img" aria-label="${esc(ariaLabel)}">
+  const klass = esc(cls ? `meter ${cls}` : 'meter');
+  return `<div class="${klass}" role="img" aria-label="${esc(ariaLabel)}">
     <div class="meter-track"><i style="width:${width}%"></i></div>
     ${label ? `<span class="meter-value">${esc(label)}</span>` : ''}
   </div>`;
