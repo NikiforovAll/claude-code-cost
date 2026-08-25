@@ -74,6 +74,26 @@ function formatPct(part, total) {
   return total > 0 ? ((part / total) * 100).toFixed(1) : '0.0';
 }
 
+// Intl puts U+202F before AM/PM, which reads as a stray gap in the mono font. Every
+// locale format that can emit an hour goes through here so the strip cannot drift.
+function stripNarrowSpace(str) {
+  return str.replace(/\u202f/g, ' ');
+}
+
+function localTime(iso, opts) {
+  return stripNarrowSpace(new Date(iso).toLocaleTimeString(undefined, opts));
+}
+
+// One meter for every share/progress card. Owns the clamp and the aria contract so a new
+// call site cannot invent a sixth clamping idiom.
+function meter(pct, { label = '', cls = '', ariaLabel = '' } = {}) {
+  const width = Math.min(100, Math.max(0, Number(pct) || 0)).toFixed(1);
+  return `<div class="meter${cls ? ` ${esc(cls)}` : ''}" role="img" aria-label="${esc(ariaLabel)}">
+    <div class="meter-track"><i style="width:${width}%"></i></div>
+    ${label ? `<span class="meter-value">${esc(label)}</span>` : ''}
+  </div>`;
+}
+
 function formatDuration(minutes) {
   if (!minutes || minutes < 1) return '<1m';
   if (minutes < 60) return `${minutes}m`;
@@ -99,7 +119,7 @@ function timeAgo(ts) {
 // time with no zone suffix.
 function bucketLabel(key, bucket) {
   if (bucket === 'hour') {
-    return new Date(`${key}:00:00`).toLocaleTimeString(undefined, { hour: 'numeric' });
+    return localTime(`${key}:00:00`, { hour: 'numeric' });
   }
   return new Date(`${key}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
@@ -576,6 +596,8 @@ function renderOverview() {
 
   const costSeries = overviewData.costSeries;
   const models = overviewData.modelDistribution || [];
+  // null, not 0, when nothing cacheable ran — an empty range should show no meter at all.
+  const cachePct = s.totalCacheRead + s.totalCacheCreation > 0 ? s.cacheEfficiency * 100 : null;
 
   // Return before any chart call so no canvas is touched — there are none in this markup.
   if (scopeProject && s.totalSessions === 0) {
@@ -627,8 +649,9 @@ function renderOverview() {
         </div>
         <div class="stat-card">
           <div class="card-label">Cache Efficiency</div>
-          <div class="card-value">${(s.cacheEfficiency * 100).toFixed(1)}%</div>
-          <div class="card-sub">Read: ${formatTokens(s.totalCacheRead)} / Created: ${formatTokens(s.totalCacheCreation)}</div>
+          <div class="card-value">${cachePct == null ? '0.0' : cachePct.toFixed(1)}%</div>
+          ${cachePct == null ? '' : meter(cachePct, { ariaLabel: `${cachePct.toFixed(1)}% of all input tokens were served from cache` })}
+          <div class="card-sub">Read: <strong>${formatTokens(s.totalCacheRead)}</strong> / Created: ${formatTokens(s.totalCacheCreation)}</div>
         </div>
       </div>
 
@@ -768,13 +791,13 @@ function initHeatmapTooltip() {
 
 // Hour-only span (e.g. "15:00–20:00") so the card makes it obvious a fresh block just opened.
 function blockHours(b) {
-  const t = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return `${t(b.start)}&ndash;${t(b.end)}`;
+  const opts = { hour: '2-digit', minute: '2-digit' };
+  return `${localTime(b.start, opts)} &ndash; ${localTime(b.end, opts)}`;
 }
 
 function blockSpanLabel(b) {
   const opts = { month: 'short', day: 'numeric', hour: 'numeric' };
-  return `${new Date(b.start).toLocaleString(undefined, opts)} – ${new Date(b.end).toLocaleTimeString(undefined, { hour: 'numeric' })}`;
+  return `${stripNarrowSpace(new Date(b.start).toLocaleString(undefined, opts))} – ${localTime(b.end, { hour: 'numeric' })}`;
 }
 
 // Classifies the active block's projection: against the live usage limit when the statusline
@@ -787,7 +810,7 @@ function burnPace(ab, blocks) {
   if (ab.usedPct != null) {
     const projPct = (ab.usedPct / elapsedMin) * blockMin;
     const cls = projPct >= 100 ? 'hot' : projPct >= 80 ? 'warn' : 'ok';
-    return { cls, note: `on pace for ${Math.round(Math.min(projPct, 999))}% of limit` };
+    return { cls, pct: Math.round(Math.min(projPct, 999)) };
   }
   const past = blocks
     .filter((b) => !b.active && b.cost > 0)
@@ -818,6 +841,8 @@ function renderInsights() {
   const sub = d.subagents;
   const agentTotal = sub.mainCost + sub.subagentCost;
   const subPct = formatPct(sub.subagentCost, agentTotal);
+  const cacheable = d.tokens.cacheRead + d.tokens.cacheCreation;
+  const cacheHitPct = cacheable > 0 ? Math.round((d.tokens.cacheRead / cacheable) * 100) : null;
   const showWeekly = d.weekly.length >= 3;
 
   el.innerHTML = `
@@ -828,27 +853,31 @@ function renderInsights() {
         <div class="stat-card">
           <div class="card-label">Active 5h Block</div>
           <div class="card-value cost">${ab ? formatCost(ab.cost) : '—'}</div>
-          <div class="card-sub">${ab ? `${blockHours(ab)} &middot; ${formatDuration(ab.burn.remainingMin)} left${ab.usedPct != null ? ` &middot; ${Math.round(ab.usedPct)}% used` : ''}` : 'no live window data'}</div>
+          ${ab?.usedPct == null ? '' : meter(ab.usedPct, { label: `${Math.round(ab.usedPct)}%`, ariaLabel: `${Math.round(ab.usedPct)}% of the 5h block used` })}
+          <div class="card-sub">${ab ? `${blockHours(ab)} &middot; <strong>${formatDuration(ab.burn.remainingMin)} left</strong>` : 'no live window data'}</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Burn Rate</div>
           <div class="card-value ${esc(pace ? `pace-${pace.cls}` : '')}">${ab ? `${formatCost(ab.burn.costPerHour)}/h` : '—'}</div>
-          <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. ${formatCost(ab.burn.projectedCost)} by block end${pace ? ` &middot; ${pace.note}` : ''}` : 'no active block'}</div>
+          ${pace?.pct == null ? '' : meter(pace.pct, { label: `${pace.pct}%`, cls: `pace-${pace.cls}`, ariaLabel: `on pace for ${pace.pct}% of the usage limit` })}
+          <div class="card-sub">${ab ? `${formatTokens(Math.round(ab.burn.tokensPerMin))} tok/min &middot; proj. <strong>${formatCost(ab.burn.projectedCost)}</strong> by block end${pace?.note ? ` &middot; ${pace.note}` : ''}` : 'no active block'}</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Monthly Run-Rate</div>
           <div class="card-value cost">${formatCost(d.runRate.projectedMonthly)}</div>
-          <div class="card-sub">${formatCost(d.runRate.dailyAvg)}/day over ${d.runRate.days} ${d.runRate.days === 1 ? 'day' : 'days'}</div>
+          <div class="card-sub"><strong>${formatCost(d.runRate.dailyAvg)}/day</strong> over ${d.runRate.days} ${d.runRate.days === 1 ? 'day' : 'days'}</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Cache Savings</div>
           <div class="card-value cost">${formatCost(d.cacheSavings)}</div>
-          <div class="card-sub">vs. uncached input &middot; ${formatTokens(d.tokens.cacheRead)} reads</div>
+          ${cacheHitPct == null ? '' : meter(cacheHitPct, { label: `${cacheHitPct}% hit`, ariaLabel: `${cacheHitPct}% of cacheable input was served from cache, not re-sent` })}
+          <div class="card-sub">vs. uncached input &middot; <strong>${formatTokens(d.tokens.cacheRead)}</strong> reads</div>
         </div>
         <div class="stat-card">
           <div class="card-label">Subagent Share</div>
           <div class="card-value">${subPct}%</div>
-          <div class="card-sub">${formatCost(sub.subagentCost)} of ${formatCost(agentTotal)}</div>
+          ${agentTotal > 0 ? meter(subPct, { ariaLabel: `subagents are ${subPct}% of ${formatCost(agentTotal)} in agent cost` }) : ''}
+          <div class="card-sub"><strong>${formatCost(sub.subagentCost)}</strong> of ${formatCost(agentTotal)}</div>
         </div>
       </div>
 
@@ -1133,7 +1162,7 @@ function buildMessageRow(m) {
     : `<span class="model-badge">${esc(shortModel(m.model))}</span>${toolTags ? ` ${toolTags}` : ''}`;
   return `<tr>
     <td class="muted">${m.index}</td>
-    <td class="muted">${new Date(m.timestamp).toLocaleTimeString()}</td>
+    <td class="muted">${localTime(m.timestamp)}</td>
     <td>${modelCol}</td>
     <td>${formatTokens(m.inputTokens)}</td>
     <td>${formatTokens(m.outputTokens)}</td>
@@ -1154,6 +1183,9 @@ function getChartColors() {
     accent: style.getPropertyValue('--accent').trim() || '#e86f33',
     chartFill: style.getPropertyValue('--chart-fill').trim() || 'rgba(232,111,51,0.6)',
     text: style.getPropertyValue('--text-secondary').trim() || '#c2c4c9',
+    textPrimary: style.getPropertyValue('--text-primary').trim() || '#f0f1f3',
+    textMuted: style.getPropertyValue('--text-muted').trim() || '#7d808a',
+    mono: style.getPropertyValue('--mono').trim() || "'IBM Plex Mono', monospace",
     border: style.getPropertyValue('--border').trim() || '#363840',
     bg: style.getPropertyValue('--bg-elevated').trim() || '#1e2025',
     chart1: style.getPropertyValue('--chart-1').trim() || '#e86f33',
@@ -1186,19 +1218,29 @@ function messageTooltipTitle(messages, items) {
   return `#${m.index}${m._subagent ? ` · ${m._subagent.agentType}` : ''}`;
 }
 
-function chartDefaults() {
-  const c = getChartColors();
+// Takes the palette the caller already read, so a chart costs one getComputedStyle, not two.
+function chartDefaults(c = getChartColors()) {
   return {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
+      // Mirrors .hm-tip so a chart hover and a heatmap hover read as the same tooltip:
+      // elevated bg, muted label above, primary value below, mono throughout.
       tooltip: {
         backgroundColor: c.bg,
-        titleColor: c.text,
-        bodyColor: c.text,
+        titleColor: c.textMuted,
+        bodyColor: c.textPrimary,
         borderColor: c.border,
         borderWidth: 1,
+        cornerRadius: 4,
+        padding: { top: 5, bottom: 5, left: 8, right: 8 },
+        titleFont: { family: c.mono, size: 10, weight: 'normal' },
+        bodyFont: { family: c.mono, size: 13, weight: '600' },
+        titleMarginBottom: 2,
+        boxWidth: 8,
+        boxHeight: 8,
+        boxPadding: 4,
       },
     },
     scales: {
@@ -1317,10 +1359,9 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost', dist
     options: {
       ...defaults,
       interaction: { mode: 'nearest', intersect: true },
-      events: [],
       plugins: {
-        ...withTooltip(defaults, { label: (ctx) => usd(ctx.parsed.y) }),
-        // events: [] disables tooltips, so the legend is the only place segment names show.
+        ...withTooltip(defaults, { label: (ctx) => `${ctx.dataset.label}  ${usd(ctx.parsed.y)}` }),
+        // The legend still carries segment names for the hours nobody hovers.
         legend: {
           display: models.length > 1,
           position: 'bottom',
@@ -1368,7 +1409,6 @@ function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
       ...defaults,
       indexAxis: 'y',
       interaction: { mode: 'nearest', intersect: true },
-      events: [],
       plugins: withTooltip(defaults, {
         label: (ctx) => `${usd(ctx.parsed.x)} (${formatPct(ctx.parsed.x, total)}%)`,
       }),
@@ -1480,7 +1520,7 @@ function renderTokenBreakdownChart(messages) {
           position: 'bottom',
           labels: {
             color: c.text,
-            font: { size: 10, family: "'IBM Plex Mono', monospace" },
+            font: { size: 10, family: c.mono },
             padding: 8,
             boxWidth: 12,
             boxHeight: 12,

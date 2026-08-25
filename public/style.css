@@ -618,7 +618,7 @@ body {
 }
 
 .dashboard-content {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -636,7 +636,7 @@ body {
 
 .cards-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -676,6 +676,42 @@ body {
   font-size: 10px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+.stat-card .card-sub strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stat-card .meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stat-card .meter-track {
+  flex: 1;
+  min-width: 0;
+  height: 3px;
+  background: var(--meter-dim, var(--accent-dim));
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stat-card .meter-track > i {
+  display: block;
+  height: 100%;
+  background: var(--meter, var(--accent));
+  border-radius: 2px;
+}
+
+.stat-card .meter-value {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--meter, var(--text-primary));
 }
 
 /* #endregion */
@@ -1248,8 +1284,8 @@ kbd {
 
 .hm-cell {
   position: relative;
-  aspect-ratio: 1.6;
-  min-height: 12px;
+  aspect-ratio: 2.4;
+  min-height: 10px;
   border-radius: 2px;
   background: var(--bg-hover);
   overflow: hidden;
@@ -1287,7 +1323,7 @@ kbd {
 }
 
 .hm-tip b {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
@@ -1312,14 +1348,25 @@ kbd {
   background: var(--success-dim);
 }
 
-.card-value.pace-ok {
-  color: var(--success);
+/* One status mapping for every pace-colored element: the modifier sets the tokens,
+   .card-value and .meter both read them. A new pace state costs one line. */
+.pace-ok {
+  --meter: var(--success);
+  --meter-dim: var(--success-dim);
 }
-.card-value.pace-warn {
-  color: var(--warning);
+.pace-warn {
+  --meter: var(--warning);
+  --meter-dim: var(--warning-dim);
 }
+.pace-hot {
+  --meter: var(--error);
+  --meter-dim: var(--error-dim);
+}
+
+.card-value.pace-ok,
+.card-value.pace-warn,
 .card-value.pace-hot {
-  color: var(--error);
+  color: var(--meter);
 }
 
 /* #endregion */
