@@ -1613,7 +1613,7 @@ function rangeBrushHtml(total) {
           </div>
         </div>
         <div class="rb-track" tabindex="0" role="slider" aria-label="Visible message range"
-             aria-valuemin="1" aria-valuemax="${total}">
+             aria-valuemin="1" aria-valuemax="${esc(total)}">
           ${rangeOverviewSvg}
           <div class="rb-bursts"></div>
           <div class="rb-window">
