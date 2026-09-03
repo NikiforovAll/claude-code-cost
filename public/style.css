@@ -780,6 +780,222 @@ body {
 
 /* #endregion */
 
+/* #region RANGE BRUSH */
+
+.range-brush {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 16px 12px;
+  margin: -8px 0 20px;
+}
+
+.rb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.rb-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rb-burst-count {
+  margin-left: 10px;
+  color: var(--warning);
+}
+
+.rb-burst-count i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.rb-presets {
+  display: flex;
+  gap: 4px;
+}
+
+.rb-preset {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.rb-preset:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.rb-preset.on {
+  color: var(--accent-text);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.rb-track {
+  position: relative;
+  height: 44px;
+  border-radius: 4px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+  outline: none;
+}
+
+.rb-track:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.rb-overview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.rb-overview polygon {
+  fill: var(--chart-fill);
+}
+
+.rb-overview polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.rb-bursts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.rb-burst {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  margin-left: -3.5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.rb-burst::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--warning);
+  opacity: 0.55;
+}
+
+.rb-burst::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.rb-burst.in::before,
+.rb-burst:hover::before {
+  opacity: 1;
+  width: 2px;
+  left: 2.5px;
+}
+
+/* The shade outside the window is the window's own shadow, clipped by the track. */
+.rb-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent-dim);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  box-sizing: border-box;
+  min-width: 8px;
+}
+
+body.light .rb-window {
+  box-shadow: 0 0 0 9999px rgba(255, 255, 255, 0.55);
+}
+
+.rb-track.dragging,
+.rb-track.dragging .rb-window {
+  cursor: grabbing;
+}
+
+.rb-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+}
+
+.rb-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.rb-handle-left {
+  left: -5px;
+}
+
+.rb-handle-left::after {
+  left: 3px;
+}
+
+.rb-handle-right {
+  right: -5px;
+}
+
+.rb-handle-right::after {
+  right: 3px;
+}
+
+/* #endregion */
+
 /* #region TABLE */
 
 .section-title {

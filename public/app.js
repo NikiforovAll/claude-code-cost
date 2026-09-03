@@ -818,9 +818,8 @@ function burnPace(ab, blocks) {
     .map((b) => b.cost)
     .sort((a, b) => a - b);
   if (past.length < 3) return null;
-  const median = past[Math.floor(past.length / 2)];
   const p90 = past[Math.min(past.length - 1, Math.floor(past.length * 0.9))];
-  const cls = ab.burn.projectedCost > p90 ? 'hot' : ab.burn.projectedCost > median ? 'warn' : 'ok';
+  const cls = ab.burn.projectedCost > p90 ? 'hot' : ab.burn.projectedCost > median(past) ? 'warn' : 'ok';
   return { cls, note: `vs. ${formatCost(median)} median block` };
 }
 
@@ -1106,6 +1105,8 @@ function renderDetail() {
         </div>
       </div>
 
+      ${rangeBrushHtml(d.messages.length)}
+
       <div class="section-title">Messages (${d.messages.length})</div>
       <table class="messages-table">
         <thead><tr>
@@ -1126,8 +1127,10 @@ function renderDetail() {
     </div>`;
 
   requestAnimationFrame(() => {
-    renderCumulativeChart(d.messages);
-    renderTokenBreakdownChart(d.messages);
+    destroyChart('cumulative');
+    destroyChart('tokenBreakdown');
+    applyDetailRange(d.messages, detailRangeFor(d));
+    initRangeBrush(d.messages);
   });
 }
 
@@ -1421,6 +1424,50 @@ function renderModelChart(models, canvasId = 'modelChart', chartKey = 'model') {
   });
 }
 
+function cumulativeChartData(messages, c) {
+  return {
+    labels: messages.map((m) => m.index),
+    datasets: [
+      {
+        label: 'Cumulative Cost',
+        data: messages.map((m) => m.cumulativeCost),
+        borderColor: c.accent,
+        backgroundColor: c.chartFill,
+        fill: true,
+        borderWidth: 2,
+        pointRadius: messages.length > 50 ? 0 : 3,
+        // Subagent points render hollow so they read as folded-in cost, not main-loop turns.
+        pointBackgroundColor: messages.length > 50 ? c.accent : messages.map((m) => (m._subagent ? c.bg : c.accent)),
+        pointBorderColor: c.accent,
+        tension: 0.2,
+      },
+    ],
+  };
+}
+
+function tokenBreakdownChartData(messages, c) {
+  // Subagent bars render translucent so they read as folded-in usage, not main-loop turns.
+  const barColors = (hex) => {
+    const faded = hexToRgba(hex, 0.45);
+    return messages.map((m) => (m._subagent ? faded : hex));
+  };
+  const series = [
+    ['Input', 'inputTokens', c.chart1],
+    ['Output', 'outputTokens', c.chart2],
+    ['Cache Create', 'cacheCreationTokens', c.chart3],
+    ['Cache Read', 'cacheReadTokens', c.chart4],
+  ];
+  return {
+    labels: messages.map((m) => m.index),
+    datasets: series.map(([label, key, hex]) => ({
+      label,
+      data: messages.map((m) => m[key]),
+      backgroundColor: barColors(hex),
+      borderRadius: 2,
+    })),
+  };
+}
+
 function renderCumulativeChart(messages) {
   const canvas = document.getElementById('cumulativeChart');
   if (!canvas || !messages?.length) return;
@@ -1431,27 +1478,10 @@ function renderCumulativeChart(messages) {
 
   charts.cumulative = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels: messages.map((m) => m.index),
-      datasets: [
-        {
-          label: 'Cumulative Cost',
-          data: messages.map((m) => m.cumulativeCost),
-          borderColor: c.accent,
-          backgroundColor: c.chartFill,
-          fill: true,
-          borderWidth: 2,
-          pointRadius: messages.length > 50 ? 0 : 3,
-          // Subagent points render hollow so they read as folded-in cost, not main-loop turns.
-          pointBackgroundColor: messages.length > 50 ? c.accent : messages.map((m) => (m._subagent ? c.bg : c.accent)),
-          pointBorderColor: c.accent,
-          tension: 0.2,
-        },
-      ],
-    },
+    data: cumulativeChartData(messages, c),
     options: {
       ...defaults,
-      plugins: withTooltip(defaults, { title: (items) => messageTooltipTitle(messages, items) }),
+      plugins: withTooltip(defaults, { title: (items) => messageTooltipTitle(detailSlice, items) }),
       scales: {
         ...defaults.scales,
         x: {
@@ -1475,47 +1505,13 @@ function renderTokenBreakdownChart(messages) {
   const c = getChartColors();
   const defaults = chartDefaults();
 
-  // Subagent bars render translucent so they read as folded-in usage, not main-loop turns.
-  const barColors = (hex) => {
-    const faded = hexToRgba(hex, 0.45);
-    return messages.map((m) => (m._subagent ? faded : hex));
-  };
-
   charts.tokenBreakdown = new Chart(canvas, {
     type: 'bar',
-    data: {
-      labels: messages.map((m) => m.index),
-      datasets: [
-        {
-          label: 'Input',
-          data: messages.map((m) => m.inputTokens),
-          backgroundColor: barColors(c.chart1),
-          borderRadius: 2,
-        },
-        {
-          label: 'Output',
-          data: messages.map((m) => m.outputTokens),
-          backgroundColor: barColors(c.chart2),
-          borderRadius: 2,
-        },
-        {
-          label: 'Cache Create',
-          data: messages.map((m) => m.cacheCreationTokens),
-          backgroundColor: barColors(c.chart3),
-          borderRadius: 2,
-        },
-        {
-          label: 'Cache Read',
-          data: messages.map((m) => m.cacheReadTokens),
-          backgroundColor: barColors(c.chart4),
-          borderRadius: 2,
-        },
-      ],
-    },
+    data: tokenBreakdownChartData(messages, c),
     options: {
       ...defaults,
       plugins: {
-        ...withTooltip(defaults, { title: (items) => messageTooltipTitle(messages, items) }),
+        ...withTooltip(defaults, { title: (items) => messageTooltipTitle(detailSlice, items) }),
         legend: {
           display: true,
           position: 'bottom',
@@ -1540,6 +1536,245 @@ function renderTokenBreakdownChart(messages) {
     },
   });
 }
+
+// #region RANGE BRUSH
+// Long sessions squash both per-message charts into noise, so the detail view shows a window of
+// the last DETAIL_WINDOW messages by default and lets the user drag that window across an overview
+// of the whole session. State lives outside the DOM because renderDetail rebuilds its innerHTML on
+// every refresh; a window that sits at the tail stays there so new messages scroll into view.
+const DETAIL_WINDOW_PRESETS = [25, 50, 100, 200];
+const DETAIL_WINDOW = DETAIL_WINDOW_PRESETS[0];
+const DETAIL_WINDOW_MIN = 10;
+let detailRange = null;
+let detailSlice = [];
+
+function median(sorted) {
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+// A cache burst is a main-loop turn that wrote far more cache than the session normally does:
+// the prompt prefix was invalidated (edited system prompt, compaction, new tool set, long gap) and
+// had to be re-cached. Relative to the session median so a chatty session and a heavy one both
+// surface their own outliers; the absolute floor drops noise in tiny sessions.
+const CACHE_BURST_RATIO = 4;
+const CACHE_BURST_MIN_TOKENS = 20000;
+
+function cacheBurstIndices(messages) {
+  const writes = messages
+    .filter((m) => !m._subagent && m.cacheCreationTokens > 0)
+    .map((m) => m.cacheCreationTokens)
+    .sort((a, b) => a - b);
+  if (writes.length < 5) return [];
+  const threshold = Math.max(CACHE_BURST_MIN_TOKENS, median(writes) * CACHE_BURST_RATIO);
+  return messages.flatMap((m, i) => (!m._subagent && m.cacheCreationTokens >= threshold ? [i] : []));
+}
+
+function clampRange(start, end, total) {
+  const s = Math.max(0, Math.min(start, total - DETAIL_WINDOW_MIN));
+  return { start: s, end: Math.max(s + DETAIL_WINDOW_MIN, Math.min(end, total)) };
+}
+
+function detailRangeFor(d) {
+  const total = d.messages.length;
+  const prev = detailRange?.key === d.sessionId ? detailRange : null;
+  const size = prev ? prev.end - prev.start : DETAIL_WINDOW;
+  const atTail = !prev || prev.end === prev.total;
+  const start = atTail ? total - size : prev.start;
+  detailRange = { key: d.sessionId, total, ...clampRange(start, start + size, total) };
+  return detailRange;
+}
+
+function applyDetailRange(messages, range) {
+  detailSlice = messages.slice(range.start, range.end);
+  const c = getChartColors();
+  if (charts.cumulative && charts.tokenBreakdown) {
+    charts.cumulative.data = cumulativeChartData(detailSlice, c);
+    charts.cumulative.update('none');
+    charts.tokenBreakdown.data = tokenBreakdownChartData(detailSlice, c);
+    charts.tokenBreakdown.update('none');
+  } else {
+    renderCumulativeChart(detailSlice);
+    renderTokenBreakdownChart(detailSlice);
+  }
+}
+
+function rangeBrushHtml(total) {
+  if (total <= DETAIL_WINDOW) return '';
+  const presets = DETAIL_WINDOW_PRESETS.filter((n) => n < total)
+    .map((n) => `<button type="button" class="rb-preset" data-size="${n}">${n}</button>`)
+    .join('');
+  return `
+      <div class="range-brush" id="rangeBrush">
+        <div class="rb-head">
+          <span class="rb-label"><span class="rb-scope"></span><span class="rb-burst-count" hidden><i></i></span></span>
+          <div class="rb-presets" role="group" aria-label="Window size">
+            ${presets}
+            <button type="button" class="rb-preset" data-size="all">All</button>
+          </div>
+        </div>
+        <div class="rb-track" tabindex="0" role="slider" aria-label="Visible message range"
+             aria-valuemin="1" aria-valuemax="${total}">
+          ${rangeOverviewSvg}
+          <div class="rb-bursts"></div>
+          <div class="rb-window">
+            <div class="rb-handle rb-handle-left" data-edge="start"></div>
+            <div class="rb-handle rb-handle-right" data-edge="end"></div>
+          </div>
+        </div>
+      </div>`;
+}
+
+// The overview shares the brush's percentage coordinate space, so it stretches with the track and
+// needs no resize handling. Points are filled in by initRangeBrush.
+const rangeOverviewSvg =
+  '<svg class="rb-overview" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><polygon /><polyline /></svg>';
+
+function initRangeBrush(messages) {
+  const root = document.getElementById('rangeBrush');
+  if (!root) return;
+  const total = messages.length;
+  const range = detailRange;
+  const q = (sel) => root.querySelector(sel);
+  const track = q('.rb-track');
+  const win = q('.rb-window');
+  const scope = q('.rb-scope');
+  const burstCount = q('.rb-burst-count');
+  const presets = [...root.querySelectorAll('.rb-preset')].map((el) => ({
+    el,
+    size: el.dataset.size === 'all' ? total : Number(el.dataset.size),
+  }));
+
+  drawRangeOverview(q('.rb-overview'), messages);
+
+  const bursts = cacheBurstIndices(messages);
+  const burstsEl = q('.rb-bursts');
+  burstsEl.innerHTML = bursts
+    .map((i) => {
+      const m = messages[i];
+      const tip = `#${m.index} · cache write ${formatTokens(m.cacheCreationTokens)}`;
+      return `<button type="button" class="rb-burst" data-i="${i}" style="left:${((i + 0.5) / total) * 100}%" title="${esc(tip)}" aria-label="${esc(tip)}"></button>`;
+    })
+    .join('');
+  const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: bursts[k] }));
+  if (bursts.length) {
+    burstCount.hidden = false;
+    burstCount.append(`${bursts.length} cache burst${bursts.length === 1 ? '' : 's'}`);
+  }
+
+  const layout = () => {
+    const size = range.end - range.start;
+    win.style.left = `${(range.start / total) * 100}%`;
+    win.style.width = `${(size / total) * 100}%`;
+    const text =
+      size === total
+        ? `All ${total} messages`
+        : `Messages #${messages[range.start].index} – #${messages[range.end - 1].index} · ${size} of ${total}`;
+    scope.textContent = text;
+    track.setAttribute('aria-valuenow', String(range.start + 1));
+    track.setAttribute('aria-valuetext', text);
+    for (const p of presets) p.el.classList.toggle('on', p.size === size);
+    for (const b of burstEls) b.el.classList.toggle('in', b.i >= range.start && b.i < range.end);
+  };
+
+  // Pointer and wheel events outrun the frame rate, so range writes are coalesced into one paint.
+  let frame = 0;
+  const setRange = (from, to) => {
+    const next = clampRange(from, to, total);
+    if (next.start === range.start && next.end === range.end) return;
+    Object.assign(range, next);
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      layout();
+      applyDetailRange(messages, range);
+    });
+  };
+  const size = () => range.end - range.start;
+  const step = () => Math.max(1, Math.round(size() / 10));
+  const pan = (delta) => setRange(range.start + delta, range.end + delta);
+  const centerOn = (i) => {
+    const start = Math.max(0, Math.min(i - Math.floor(size() / 2), total - size()));
+    setRange(start, start + size());
+  };
+  const resize = (n) => {
+    const end = Math.min(total, Math.max(range.end, n));
+    setRange(end - n, end);
+  };
+
+  // Pointer capture keeps a fast drag alive after the cursor leaves the thin track. The rect is
+  // read once per drag: reading it per move right after writing the window's style would thrash.
+  track.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    track.focus({ preventScroll: true });
+    const rect = track.getBoundingClientRect();
+    const perPx = total / rect.width;
+    const edge = e.target.dataset?.edge;
+    if (!edge && e.target !== win) centerOn(Math.round((e.clientX - rect.left) * perPx));
+    const origin = { x: e.clientX, start: range.start, end: range.end };
+    track.classList.add('dragging');
+    track.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const delta = Math.round((ev.clientX - origin.x) * perPx);
+      if (edge === 'start') setRange(origin.start + delta, origin.end);
+      else if (edge === 'end') setRange(origin.start, origin.end + delta);
+      else {
+        const n = origin.end - origin.start;
+        const start = Math.max(0, Math.min(origin.start + delta, total - n));
+        setRange(start, start + n);
+      }
+    };
+    const up = () => {
+      track.classList.remove('dragging');
+      track.removeEventListener('pointermove', move);
+      track.removeEventListener('pointerup', up);
+      track.removeEventListener('pointercancel', up);
+    };
+    track.addEventListener('pointermove', move);
+    track.addEventListener('pointerup', up);
+    track.addEventListener('pointercancel', up);
+  });
+
+  track.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      pan((e.deltaY || e.deltaX) > 0 ? step() : -step());
+    },
+    { passive: false },
+  );
+
+  track.addEventListener('keydown', (e) => {
+    const n = e.shiftKey ? size() : step();
+    if (e.key === 'ArrowLeft') pan(-n);
+    else if (e.key === 'ArrowRight') pan(n);
+    else if (e.key === 'Home') setRange(0, size());
+    else if (e.key === 'End') setRange(total - size(), total);
+    else return;
+    e.preventDefault();
+  });
+
+  for (const p of presets) p.el.addEventListener('click', () => resize(p.size));
+
+  burstsEl.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.rb-burst');
+    if (!b) return;
+    e.stopPropagation();
+    e.preventDefault();
+    centerOn(Number(b.dataset.i));
+  });
+
+  layout();
+}
+
+function drawRangeOverview(svg, messages) {
+  const n = messages.length;
+  const max = messages[n - 1]?.cumulativeCost || 1;
+  const pts = messages.map((m, i) => `${(i / Math.max(1, n - 1)) * 1000},${100 - (m.cumulativeCost / max) * 96 - 2}`);
+  svg.querySelector('polyline').setAttribute('points', pts.join(' '));
+  svg.querySelector('polygon').setAttribute('points', `0,100 ${pts.join(' ')} 1000,100`);
+}
+// #endregion
 
 function renderTokenSplitChart(t) {
   const canvas = document.getElementById('tokenSplitChart');
