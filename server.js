@@ -372,25 +372,66 @@ function getSessionIdFromFile(filePath) {
   return path.basename(filePath, '.jsonl');
 }
 
-function scanSubagentDir(sessionDir) {
-  const subagentsDir = path.join(sessionDir, 'subagents');
-  const result = [];
-  try {
-    for (const f of fs.readdirSync(subagentsDir)) {
-      if (!f.endsWith('.jsonl')) continue;
-      const agentId = f.replace('.jsonl', '');
-      const metaPath = path.join(subagentsDir, `${agentId}.meta.json`);
-      let meta = {};
-      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch { /* no meta */ }
-      result.push({
-        agentId,
-        filePath: path.join(subagentsDir, f),
-        agentType: meta.agentType || 'unknown',
-        description: meta.description || '',
-      });
+function readdirSafe(dir) {
+  try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+}
+
+// Agents sit at subagents/agent-*.jsonl, but a Workflow run nests its own under
+// subagents/workflows/<wfId>/ — and a workflow that starts a workflow nests deeper still, so walk
+// rather than hard-code the depth. Descending only into a listed entry also keeps the common
+// no-workflow session at one readdir.
+function collectAgents(dir, workflowId, out) {
+  for (const e of readdirSafe(dir)) {
+    if (e.isDirectory()) {
+      if (e.name !== 'workflows') continue;
+      const runsDir = path.join(dir, e.name);
+      for (const run of readdirSafe(runsDir)) {
+        if (run.isDirectory()) collectAgents(path.join(runsDir, run.name), run.name, out);
+      }
+      continue;
     }
-  } catch { /* dir doesn't exist or unreadable */ }
+    if (!e.name.endsWith('.jsonl')) continue;
+    const agentId = e.name.replace('.jsonl', '');
+    let meta = {};
+    try { meta = JSON.parse(fs.readFileSync(path.join(dir, `${agentId}.meta.json`), 'utf-8')); } catch { /* no meta */ }
+    out.push({
+      agentId,
+      filePath: path.join(dir, e.name),
+      agentType: meta.agentType || 'unknown',
+      description: meta.description || '',
+      workflowId,
+    });
+  }
+}
+
+function scanSubagentDir(sessionDir) {
+  const result = [];
+  collectAgents(path.join(sessionDir, 'subagents'), null, result);
   return result;
+}
+
+// The run's script is saved as <name>-<wfId>.js under a session dir keyed by the workflow's cwd,
+// which need not be the project the session file lives in — so the session's own project dir is
+// only the likely home, and a miss falls back to sweeping the rest.
+function findWorkflowNames(sessionId, wantedIds, likelyProjectDir) {
+  const names = new Map();
+  const wanted = new Set(wantedIds);
+  const scan = (projectDir) => {
+    for (const f of readdirSafe(path.join(projectDir, sessionId, 'workflows', 'scripts'))) {
+      const m = f.name.match(/^(.*)-(wf_.+)\.js$/);
+      if (m && wanted.has(m[2])) names.set(m[2], m[1]);
+    }
+    return names.size === wanted.size;
+  };
+  for (const baseDir of getProjectsDirs()) {
+    if (scan(path.join(baseDir, likelyProjectDir))) return names;
+  }
+  for (const baseDir of getProjectsDirs()) {
+    for (const e of readdirSafe(baseDir)) {
+      if (e.isDirectory() && e.name !== likelyProjectDir && scan(path.join(baseDir, e.name))) return names;
+    }
+  }
+  return names;
 }
 
 // `<synthetic>` and friends are Claude Code bookkeeping entries, not models the user chose.
@@ -408,6 +449,7 @@ async function loadSubagentData(subagentInfos, pricing) {
       agentId: info.agentId,
       agentType: info.agentType,
       description: info.description,
+      workflowId: info.workflowId || null,
       totalCost: 0,
       inputTokens: 0, outputTokens: 0,
       cacheCreationTokens: 0, cacheReadTokens: 0,
@@ -553,7 +595,7 @@ async function loadProjectData(files, pricing) {
           cacheCreationTokens: sa.cacheCreationTokens,
           cacheReadTokens: sa.cacheReadTokens,
           speed: 'standard',
-          _subagent: { agentId: sa.agentId, agentType: sa.agentType, description: sa.description, messageCount: sa.messageCount },
+          _subagent: { agentId: sa.agentId, agentType: sa.agentType, description: sa.description, messageCount: sa.messageCount, workflowId: sa.workflowId },
         });
       }
     }
@@ -935,6 +977,30 @@ async function getSessionDetailData(sessionId) {
       return { ...m, index: i + 1, cumulativeCost: cumulative };
     });
 
+    // One folded-in message per agent, and `messages` is already sorted, so a group's ends are
+    // the run's first and last agent.
+    const byWorkflow = new Map();
+    for (const m of messages) {
+      const wf = m._subagent?.workflowId;
+      if (!wf) continue;
+      if (!byWorkflow.has(wf)) byWorkflow.set(wf, []);
+      byWorkflow.get(wf).push(m);
+    }
+    const names = byWorkflow.size > 0
+      ? findWorkflowNames(sessionId, byWorkflow.keys(), encodedPath)
+      : new Map();
+    const workflows = [...byWorkflow].map(([id, msgs]) => {
+      const { messageCount, ...totals } = summarizeMessages(msgs);
+      return {
+        id,
+        name: names.get(id) || id,
+        agents: messageCount,
+        firstTimestamp: msgs[0].timestamp,
+        lastTimestamp: msgs.at(-1).timestamp,
+        ...totals,
+      };
+    }).sort((a, b) => b.totalCost - a.totalCost);
+
     const result = {
       sessionId,
       customTitle: session.customTitle,
@@ -949,6 +1015,7 @@ async function getSessionDetailData(sessionId) {
       firstPrompt: session.firstPrompt,
       firstTimestamp: session.firstTimestamp,
       lastTimestamp: session.lastTimestamp,
+      workflows,
       messages,
     };
 
@@ -1113,6 +1180,8 @@ async function getInsightsData(range, projectFilter) {
   const toolCounts = {};
   let mainCost = 0;
   let subagentCost = 0;
+  let workflowCost = 0;
+  const workflowRuns = new Set();
   const weekly = {};
 
   // getModelPricing falls back to a linear scan of the whole LiteLLM map on a miss, so resolve
@@ -1136,6 +1205,10 @@ async function getInsightsData(range, projectFilter) {
 
     if (m._subagent) {
       subagentCost += m.cost;
+      if (m._subagent.workflowId) {
+        workflowCost += m.cost;
+        workflowRuns.add(m._subagent.workflowId);
+      }
     } else {
       mainCost += m.cost;
       if (m.tools) for (const t of m.tools) toolCounts[t] = (toolCounts[t] || 0) + 1;
@@ -1175,7 +1248,9 @@ async function getInsightsData(range, projectFilter) {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, MAX_TOOLS),
-    subagents: { mainCost, subagentCost },
+    // workflowCost is the slice of subagentCost spent inside Workflow runs, not a third peer —
+    // mainCost + subagentCost is still the whole.
+    subagents: { mainCost, subagentCost, workflowCost, workflowRuns: workflowRuns.size },
     weekly: Object.entries(weekly)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([weekStart, cost]) => ({ weekStart, cost })),

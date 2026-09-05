@@ -877,7 +877,7 @@ function renderInsights() {
           <div class="card-label">Subagent Share</div>
           <div class="card-value">${subPct}%</div>
           ${agentTotal > 0 ? meter(subPct, { ariaLabel: `subagents are ${subPct}% of ${formatCost(agentTotal)} in agent cost` }) : ''}
-          <div class="card-sub"><strong>${formatCost(sub.subagentCost)}</strong> of ${formatCost(agentTotal)}</div>
+          <div class="card-sub"><strong>${formatCost(sub.subagentCost)}</strong> of ${formatCost(agentTotal)}${sub.workflowRuns ? ` &middot; ${formatCost(sub.workflowCost)} in ${sub.workflowRuns} workflow${sub.workflowRuns === 1 ? '' : 's'}` : ''}</div>
         </div>
       </div>
 
@@ -1093,6 +1093,7 @@ function renderDetail() {
       </div>
 
       ${detailRangeNote(d)}
+      ${workflowsSection(d)}
 
       <div class="charts-row" style="margin-bottom:20px">
         <div class="chart-box">
@@ -1151,6 +1152,41 @@ function detailRangeNote(d) {
   return `<div class="detail-range-note">Totals above are all-time &middot; ${parts.join(' &middot; ')}</div>`;
 }
 
+// A Workflow run fans out to tens of agents, each folded into one message row — so the run itself
+// is the unit worth reading, not the rows.
+function workflowsSection(d) {
+  if (!d.workflows?.length) return '';
+  const rows = d.workflows
+    .map((w) => {
+      const pct = d.totalCost > 0 ? Math.round((w.totalCost / d.totalCost) * 100) : 0;
+      const mins = Math.round((new Date(w.lastTimestamp) - new Date(w.firstTimestamp)) / 60000);
+      return `<tr>
+      <td>${esc(w.name)}</td>
+      <td>${w.agents}</td>
+      <td class="muted">${mins} min</td>
+      <td>${formatTokens(w.inputTokens + w.cacheCreationTokens + w.cacheReadTokens)}</td>
+      <td>${formatTokens(w.outputTokens)}</td>
+      <td class="cost-cell">${formatCost(w.totalCost)}</td>
+      <td>${meter(pct, { label: `${pct}%`, ariaLabel: `${pct}% of session cost` })}</td>
+    </tr>`;
+    })
+    .join('');
+  return `
+    <div class="section-title">Workflows (${d.workflows.length})</div>
+    <table class="messages-table" style="margin-bottom:20px">
+      <thead><tr>
+        <th>Workflow</th>
+        <th>Agents</th>
+        <th>Span</th>
+        <th>Input</th>
+        <th>Output</th>
+        <th>Cost</th>
+        <th>Share</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function buildMessageRowsWithSubagents(d) {
   return [...d.messages]
     .reverse()
@@ -1162,7 +1198,7 @@ function buildMessageRow(m) {
   const sa = m._subagent;
   const toolTags = !sa && m.tools ? m.tools.map((t) => `<span class="tool-tag">${esc(t)}</span>`).join(' ') : '';
   const modelCol = sa
-    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.agentType)}</span>`
+    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.workflowId ? 'workflow' : sa.agentType)}</span>`
     : `<span class="model-badge">${esc(shortModel(m.model))}</span>${toolTags ? ` ${toolTags}` : ''}`;
   return `<tr>
     <td class="muted">${m.index}</td>
