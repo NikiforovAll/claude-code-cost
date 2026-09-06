@@ -1015,7 +1015,7 @@ function renderSessions() {
               <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || s.sessionId)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
-              <td>${s.messageCount}</td>
+              <td>${s.messageCount}${s.compactions?.count ? ` <span class="compaction-tag" title="${s.compactions.count} compaction(s), ~${formatCost(s.compactions.totalCost)}">${s.compactions.count}&times; compact</span>` : ''}</td>
               <td class="muted">${formatDuration(s.durationMinutes)}</td>
               <td><span class="model-badge">${esc(shortModel(s.primaryModel))}</span></td>
               <td class="muted">${timeAgo(s.lastTimestamp)}</td>
@@ -1090,9 +1090,11 @@ function renderDetail() {
           <div class="detail-label">Models</div>
           <div class="detail-value">${esc(d.models.map((m) => shortModel(m)).join(', '))}</div>
         </div>
+        ${compactionStat(d.compactions)}
       </div>
 
       ${detailRangeNote(d)}
+      ${compactionNote(d.compactions)}
       ${workflowsSection(d)}
 
       <div class="charts-row" style="margin-bottom:20px">
@@ -1152,6 +1154,39 @@ function detailRangeNote(d) {
   return `<div class="detail-range-note">Totals above are all-time &middot; ${parts.join(' &middot; ')}</div>`;
 }
 
+function compactionStat(c) {
+  if (!c?.count) return '';
+  return `<div class="detail-stat">
+      <div class="detail-label">Compactions</div>
+      <div class="detail-value">${c.count}<span class="detail-label detail-scope">~${formatCost(c.totalCost)}</span></div>
+    </div>`;
+}
+
+// The summarizer call is not in the JSONL, so its share is an estimate; the re-warm share is real
+// spend already inside the total. Both are spelled out so the header number is not read as exact.
+function compactionNote(c) {
+  if (!c?.count) return '';
+  const trigger =
+    c.auto === c.count ? 'all auto' : c.auto === 0 ? 'all manual' : `${c.auto} auto, ${c.count - c.auto} manual`;
+  return `<div class="detail-range-note compaction-note">
+    <span class="scope-label">compaction</span> ${trigger} &middot;
+    dropped <strong>${formatTokens(c.droppedTokens)}</strong> tokens &middot;
+    summarizer <strong>~${formatCost(c.estCost)}</strong> (estimate, not in total) &middot;
+    cache re-warm <strong>${formatCost(c.rewarmCost)}</strong> / ${formatTokens(c.rewarmTokens)} (in total)
+  </div>`;
+}
+
+function compactionRow(c) {
+  return `<tr class="compaction-row">
+    <td></td>
+    <td class="muted">${localTime(c.timestamp)}</td>
+    <td colspan="5"><span class="compaction-tag">${esc(c.trigger)} compact</span>
+      ${formatTokens(c.preTokens)} &rarr; ${formatTokens(c.postTokens)} (&minus;${formatPct(c.preTokens - c.postTokens, c.preTokens)}%) &middot; ${Math.round(c.durationMs / 1000)}s</td>
+    <td class="cost-cell">~${formatCost(c.estCost)}</td>
+    <td class="cumulative">est.</td>
+  </tr>`;
+}
+
 // A Workflow run fans out to tens of agents, each folded into one message row — so the run itself
 // is the unit worth reading, not the rows.
 function workflowsSection(d) {
@@ -1190,7 +1225,7 @@ function workflowsSection(d) {
 function buildMessageRowsWithSubagents(d) {
   return [...d.messages]
     .reverse()
-    .map((m) => buildMessageRow(m))
+    .map((m) => buildMessageRow(m) + (m.compaction ? compactionRow(m.compaction) : ''))
     .join('');
 }
 
@@ -1504,6 +1539,43 @@ function tokenBreakdownChartData(messages, c) {
   };
 }
 
+// Draws a dashed vertical line just before each turn that followed a compaction, so the flat
+// stretch in cache-read and the cache-create spike next to it read as one event, not noise.
+// Reads chart.$compactions, set by markCompactions, so a draw costs no style lookup or scan.
+const compactionMarkers = {
+  id: 'compactionMarkers',
+  afterDatasetsDraw(chart) {
+    const marks = chart.$compactions;
+    if (!marks?.indices.length) return;
+    const { ctx, chartArea, scales } = chart;
+    ctx.save();
+    ctx.strokeStyle = marks.color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.font = `9px ${marks.font}`;
+    ctx.fillStyle = marks.color;
+    ctx.textAlign = 'center';
+    for (const i of marks.indices) {
+      const p = scales.x.getPixelForValue(i);
+      const x = i > 0 ? (p + scales.x.getPixelForValue(i - 1)) / 2 : p;
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.fillText('compact', x, chartArea.top - 2);
+    }
+    ctx.restore();
+  },
+};
+
+function markCompactions(chart, messages, c) {
+  chart.$compactions = {
+    indices: messages.flatMap((m, i) => (m.compaction ? [i] : [])),
+    color: c.chart5,
+    font: c.mono,
+  };
+}
+
 function renderCumulativeChart(messages) {
   const canvas = document.getElementById('cumulativeChart');
   if (!canvas || !messages?.length) return;
@@ -1515,6 +1587,7 @@ function renderCumulativeChart(messages) {
   charts.cumulative = new Chart(canvas, {
     type: 'line',
     data: cumulativeChartData(messages, c),
+    plugins: [compactionMarkers],
     options: {
       ...defaults,
       plugins: withTooltip(defaults, { title: (items) => messageTooltipTitle(detailSlice, items) }),
@@ -1531,6 +1604,7 @@ function renderCumulativeChart(messages) {
       },
     },
   });
+  markCompactions(charts.cumulative, messages, c);
 }
 
 function renderTokenBreakdownChart(messages) {
@@ -1544,6 +1618,7 @@ function renderTokenBreakdownChart(messages) {
   charts.tokenBreakdown = new Chart(canvas, {
     type: 'bar',
     data: tokenBreakdownChartData(messages, c),
+    plugins: [compactionMarkers],
     options: {
       ...defaults,
       plugins: {
@@ -1571,6 +1646,7 @@ function renderTokenBreakdownChart(messages) {
       },
     },
   });
+  markCompactions(charts.tokenBreakdown, messages, c);
 }
 
 // #region RANGE BRUSH
@@ -1595,14 +1671,25 @@ function median(sorted) {
 const CACHE_BURST_RATIO = 4;
 const CACHE_BURST_MIN_TOKENS = 20000;
 
-function cacheBurstIndices(messages) {
+// A compaction explains the burst on the turn that follows it, so that turn is labelled
+// `compaction`; `burst` is left for the re-caches with no boundary behind them.
+function notableEvents(messages) {
   const writes = messages
     .filter((m) => !m._subagent && m.cacheCreationTokens > 0)
     .map((m) => m.cacheCreationTokens)
     .sort((a, b) => a - b);
-  if (writes.length < 5) return [];
-  const threshold = Math.max(CACHE_BURST_MIN_TOKENS, median(writes) * CACHE_BURST_RATIO);
-  return messages.flatMap((m, i) => (!m._subagent && m.cacheCreationTokens >= threshold ? [i] : []));
+  const threshold = writes.length < 5 ? Infinity : Math.max(CACHE_BURST_MIN_TOKENS, median(writes) * CACHE_BURST_RATIO);
+  return messages.flatMap((m, i) => {
+    if (m.compaction) {
+      const c = m.compaction;
+      const tip = `#${m.index} · ${c.trigger} compaction ${formatTokens(c.preTokens)} → ${formatTokens(c.postTokens)} · ~${formatCost(c.estCost)}`;
+      return [{ i, kind: 'compaction', tip }];
+    }
+    if (!m._subagent && m.cacheCreationTokens >= threshold) {
+      return [{ i, kind: 'burst', tip: `#${m.index} · cache write ${formatTokens(m.cacheCreationTokens)}` }];
+    }
+    return [];
+  });
 }
 
 function clampRange(start, end, total) {
@@ -1625,9 +1712,11 @@ function applyDetailRange(messages, range) {
   const c = getChartColors();
   if (charts.cumulative && charts.tokenBreakdown) {
     charts.cumulative.data = cumulativeChartData(detailSlice, c);
-    charts.cumulative.update('none');
     charts.tokenBreakdown.data = tokenBreakdownChartData(detailSlice, c);
-    charts.tokenBreakdown.update('none');
+    for (const chart of [charts.cumulative, charts.tokenBreakdown]) {
+      markCompactions(chart, detailSlice, c);
+      chart.update('none');
+    }
   } else {
     renderCumulativeChart(detailSlice);
     renderTokenBreakdownChart(detailSlice);
@@ -1682,19 +1771,25 @@ function initRangeBrush(messages) {
 
   drawRangeOverview(q('.rb-overview'), messages);
 
-  const bursts = cacheBurstIndices(messages);
+  const markers = notableEvents(messages);
   const burstsEl = q('.rb-bursts');
-  burstsEl.innerHTML = bursts
-    .map((i) => {
-      const m = messages[i];
-      const tip = `#${m.index} · cache write ${formatTokens(m.cacheCreationTokens)}`;
-      return `<button type="button" class="rb-burst" data-i="${i}" style="left:${((i + 0.5) / total) * 100}%" title="${esc(tip)}" aria-label="${esc(tip)}"></button>`;
-    })
+  burstsEl.innerHTML = markers
+    .map(
+      (k) =>
+        `<button type="button" class="rb-burst${k.kind === 'compaction' ? ' compact' : ''}" data-i="${k.i}" style="left:${((k.i + 0.5) / total) * 100}%" title="${esc(k.tip)}" aria-label="${esc(k.tip)}"></button>`,
+    )
     .join('');
-  const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: bursts[k] }));
-  if (bursts.length) {
+  const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: markers[k].i }));
+  const counts = [
+    ['burst', 'cache burst', ''],
+    ['compaction', 'compaction', ' class="compact"'],
+  ].flatMap(([kind, label, attr]) => {
+    const n = markers.filter((k) => k.kind === kind).length;
+    return n ? [`<span${attr}><i></i>${n} ${label}${n === 1 ? '' : 's'}</span>`] : [];
+  });
+  if (counts.length) {
     burstCount.hidden = false;
-    burstCount.append(`${bursts.length} cache burst${bursts.length === 1 ? '' : 's'}`);
+    burstCount.innerHTML = counts.join('<span class="rb-sep">·</span>');
   }
 
   const layout = () => {

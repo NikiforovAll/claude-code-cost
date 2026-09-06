@@ -29,6 +29,7 @@
   --chart-4: #f0b429;
   --chart-5: #b784f5;
   --chart-6: #fb7185;
+  --compact: var(--chart-5);
 }
 
 /* #endregion */
@@ -823,6 +824,22 @@ body {
   vertical-align: middle;
 }
 
+.rb-burst-count .compact {
+  color: var(--compact);
+}
+
+.rb-burst-count .compact i,
+.rb-burst.compact::after {
+  border-radius: 1px;
+  transform: rotate(45deg);
+  background: var(--compact);
+}
+
+.rb-burst-count .rb-sep {
+  margin: 0 6px;
+  color: var(--text-muted);
+}
+
 .rb-presets {
   display: flex;
   gap: 4px;
@@ -934,6 +951,10 @@ body {
   opacity: 1;
   width: 2px;
   left: 2.5px;
+}
+
+.rb-burst.compact::before {
+  background: var(--compact);
 }
 
 /* The shade outside the window is the window's own shadow, clipped by the track. */
@@ -1209,32 +1230,47 @@ body.light .rb-window {
   font-size: 10px;
 }
 
+.compaction-tag {
+  text-transform: uppercase;
+  color: var(--compact);
+  background: color-mix(in srgb, var(--compact) 14%, transparent);
+  white-space: nowrap;
+}
+
+.compaction-row td {
+  background: color-mix(in srgb, var(--compact) 6%, transparent);
+  color: var(--text-muted);
+}
+
+.compaction-row td:first-child {
+  border-left: 2px solid var(--compact);
+}
+
 /* #endregion */
 
 /* #region SUBAGENT */
 
-.subagent-tag {
+.subagent-tag,
+.tool-tag,
+.compaction-tag {
   font-size: 9px;
-  text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--text-muted);
-  background: var(--bg-hover);
   padding: 1px 5px;
   border-radius: 3px;
   margin-left: 4px;
   vertical-align: middle;
 }
 
+.subagent-tag {
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
 .tool-tag {
-  font-size: 9px;
   text-transform: lowercase;
-  letter-spacing: 0.03em;
   color: var(--chart-2, #60a5fa);
   background: rgba(96, 165, 250, 0.12);
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 4px;
-  vertical-align: middle;
 }
 
 /* #endregion */

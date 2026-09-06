@@ -209,6 +209,44 @@ function calculateEntryCost(data, pricing) {
   return calculateCostForModel(data.message.usage, model, pricing, speed);
 }
 
+// The summarization call behind a compact_boundary is not logged with usage, so its cost is an
+// estimate: the whole pre-compaction context read from cache, and a summary no larger than the
+// post-compaction context written out.
+function estimateCompactionCost(meta, model, pricing) {
+  return calculateCostForModel(
+    { output_tokens: meta.postTokens, cache_read_input_tokens: meta.preTokens },
+    model, pricing);
+}
+
+function compactionFacts(parsed) {
+  const meta = parsed.compactMetadata || {};
+  const preTokens = meta.preTokens || 0;
+  const postTokens = meta.postTokens || 0;
+  return {
+    timestamp: parsed.timestamp,
+    trigger: meta.trigger || 'unknown',
+    preTokens,
+    postTokens,
+    droppedTokens: Math.max(0, preTokens - postTokens),
+    durationMs: meta.durationMs || 0,
+  };
+}
+
+// The first turn after a boundary rebuilds the prompt cache from the summary, so its cache
+// creation is spend the compaction caused. It is already in the session total; the record only
+// attributes it. Models without pricing get null, not a zero that reads as "free".
+function priceCompaction(facts, msg, pricing) {
+  const model = isRealModel(msg.model) ? msg.model : null;
+  return {
+    ...facts,
+    estCost: model ? estimateCompactionCost(facts, model, pricing) : null,
+    rewarmTokens: msg.cacheCreationTokens,
+    rewarmCost: model
+      ? calculateCostForModel({ cache_creation_input_tokens: msg.cacheCreationTokens }, model, pricing, msg.speed)
+      : null,
+  };
+}
+
 // #endregion
 
 // #region DATA_AGGREGATION
@@ -508,6 +546,9 @@ async function loadProjectData(files, pricing) {
       });
     }
     const session = sessions.get(sessionId);
+    // A boundary is attributed to the next counted turn, so the message list is the only record
+    // of compactions; a boundary with no turn after it has nothing to price and is dropped.
+    let pendingCompaction = null;
 
     await processJSONLFile(file, async (line) => {
       let parsed;
@@ -515,6 +556,11 @@ async function loadProjectData(files, pricing) {
 
       if (parsed.type === 'custom-title' && parsed.customTitle) {
         session.customTitle = parsed.customTitle;
+        return;
+      }
+
+      if (parsed.type === 'system' && parsed.subtype === 'compact_boundary' && parsed.timestamp) {
+        pendingCompaction = compactionFacts(parsed);
         return;
       }
 
@@ -560,6 +606,10 @@ async function loadProjectData(files, pricing) {
         speed: usage.speed || 'standard',
         tools: extractTools(parsed.message?.content),
       };
+      if (pendingCompaction) {
+        msg.compaction = priceCompaction(pendingCompaction, msg, pricing);
+        pendingCompaction = null;
+      }
       session.messages.push(msg);
       if (hash) seen.set(hash, msg);
 
@@ -703,6 +753,21 @@ function summarizeMessages(msgs) {
     sum.cacheCreationTokens += m.cacheCreationTokens;
     sum.cacheReadTokens += m.cacheReadTokens;
   }
+  return sum;
+}
+
+function summarizeCompactions(msgs) {
+  const sum = { count: 0, auto: 0, totalCost: 0, estCost: 0, rewarmCost: 0, rewarmTokens: 0, droppedTokens: 0 };
+  for (const { compaction: c } of msgs) {
+    if (!c) continue;
+    sum.count++;
+    if (c.trigger === 'auto') sum.auto++;
+    sum.estCost += c.estCost || 0;
+    sum.rewarmCost += c.rewarmCost || 0;
+    sum.rewarmTokens += c.rewarmTokens;
+    sum.droppedTokens += c.droppedTokens;
+  }
+  sum.totalCost = sum.estCost + sum.rewarmCost;
   return sum;
 }
 
@@ -908,6 +973,7 @@ async function getProjectSessionsData(encodedPath, range) {
       firstTimestamp: session.firstTimestamp,
       lastTimestamp: session.lastTimestamp,
       durationMinutes: Math.round(durationMs / 60000),
+      compactions: summarizeCompactions(msgs),
     });
   }
 
@@ -1016,6 +1082,7 @@ async function getSessionDetailData(sessionId) {
       firstTimestamp: session.firstTimestamp,
       lastTimestamp: session.lastTimestamp,
       workflows,
+      compactions: summarizeCompactions(messages),
       messages,
     };
 
