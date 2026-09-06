@@ -1110,7 +1110,7 @@ function renderDetail() {
 
       ${rangeBrushHtml(d.messages.length)}
 
-      <div class="section-title">Messages (${d.messages.length})</div>
+      <div class="section-title" id="messagesTitle"></div>
       <table class="messages-table">
         <thead><tr>
           <th>#</th>
@@ -1123,9 +1123,7 @@ function renderDetail() {
           <th>Cost</th>
           <th>Cumulative</th>
         </tr></thead>
-        <tbody>
-          ${buildMessageRowsWithSubagents(d)}
-        </tbody>
+        <tbody id="messagesBody"></tbody>
       </table>
     </div>`;
 
@@ -1222,11 +1220,17 @@ function workflowsSection(d) {
     </table>`;
 }
 
-function buildMessageRowsWithSubagents(d) {
-  return [...d.messages]
-    .reverse()
-    .map((m) => buildMessageRow(m) + (m.compaction ? compactionRow(m.compaction) : ''))
-    .join('');
+function renderMessageRows(slice, total) {
+  const body = document.getElementById('messagesBody');
+  if (!body) return;
+  document.getElementById('messagesTitle').textContent =
+    slice.length === total ? `Messages (${total})` : `Messages (${slice.length} of ${total})`;
+  const rows = [];
+  for (let i = slice.length - 1; i >= 0; i--) {
+    const m = slice[i];
+    rows.push(buildMessageRow(m) + (m.compaction ? compactionRow(m.compaction) : ''));
+  }
+  body.innerHTML = rows.join('');
 }
 
 function buildMessageRow(m) {
@@ -1709,6 +1713,7 @@ function detailRangeFor(d) {
 
 function applyDetailRange(messages, range) {
   detailSlice = messages.slice(range.start, range.end);
+  renderMessageRows(detailSlice, messages.length);
   const c = getChartColors();
   if (charts.cumulative && charts.tokenBreakdown) {
     charts.cumulative.data = cumulativeChartData(detailSlice, c);
