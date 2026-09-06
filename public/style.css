@@ -1379,21 +1379,16 @@ body.light .rb-window {
 }
 
 .modal-close {
-  margin-top: 20px;
-  width: 100%;
-  padding: 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 12px;
-  text-transform: uppercase;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .modal-close:hover {
-  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -1408,16 +1403,91 @@ body.light .rb-window {
   margin-bottom: 0;
 }
 
+/* The paired shortcut columns need room the 500px default cannot give. */
+.modal-box.modal-help {
+  max-width: 960px;
+}
+
+.picker-box {
+  max-width: 560px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.picker-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.picker-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.picker-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-row:hover {
+  background: var(--bg-hover);
+}
+
+.picker-row.selected {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-cost {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.picker-empty {
+  padding: 12px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .modal-divider {
   border: none;
   border-top: 1px solid var(--border);
   margin: 16px 0;
-}
-
-.shortcut-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
 }
 
 .shortcut-section {
@@ -1427,22 +1497,100 @@ body.light .rb-window {
   font-weight: 600;
 }
 
-.shortcut-table {
-  width: 100%;
-  font-size: 12px;
+/* One shared grid for both halves (key | label | spacer | key | label): each key
+   gutter is sized by its column's widest combo, and left/right rows share row
+   tracks, so paired groups line up — a shorter group just leaves empty rows.
+   Cells opt into a half via sc-l / sc-r; the markup is generated from
+   SHORTCUT_PAIRS in app.js. */
+.shortcuts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr 28px max-content 1fr;
+  column-gap: 14px;
 }
 
-.shortcut-table td {
+.shortcuts dt.sc-l {
+  grid-column: 1;
+}
+
+.shortcuts dd.sc-l {
+  grid-column: 2;
+}
+
+.shortcuts dt.sc-r {
+  grid-column: 4;
+}
+
+.shortcuts dd.sc-r {
+  grid-column: 5;
+}
+
+.shortcuts .sc-group.sc-l {
+  grid-column: 1 / 3;
+}
+
+.shortcuts .sc-group.sc-r {
+  grid-column: 4 / 6;
+}
+
+.shortcuts dt {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
   padding: 3px 0;
+}
+
+.shortcuts dd {
+  margin: 0;
+  font-size: 13px;
   color: var(--text-secondary);
+  align-self: center;
+  padding: 3px 0;
 }
 
-.shortcut-table td:first-child {
-  width: 120px;
-}
-
-.shortcut-table td:last-child {
+/* Section headings carry the column: full-width rule + primary ink, so the eye
+   finds the group before it reads any single row. */
+.shortcuts .sc-group {
+  padding: 18px 0 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcuts .sc-group.sc-first {
+  padding-top: 2px;
+}
+
+/* keycap chips: thicker bottom border reads as a key */
+.shortcuts kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+
+.shortcuts .sc-plus,
+.shortcuts .sc-or {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Hub keys do nothing outside Claude Code Hub, so the standalone app hides that
+   whole column rather than listing keys that no-op. */
+.shortcuts.sc-standalone .sc-hub {
+  display: none;
 }
 
 kbd {

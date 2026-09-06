@@ -2469,7 +2469,6 @@ async function navigate(view, params) {
   if (view !== 'detail') selectRow(0);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
 async function navigateToSessions(encodedPath, name) {
   lastSelectedProject = encodedPath;
   currentProjectPath = encodedPath;
@@ -2668,7 +2667,183 @@ function ensureViewElements() {
 
 // #region MODAL
 
+// The picker drills in — it navigates to a project's sessions view. That is a different act
+// from the hub's scope chip, which filters every view without moving the cursor.
+let pickerProjects = [];
+let pickerRows = [];
+let pickerIdx = 0;
+
+async function openProjectPicker() {
+  const modal = document.getElementById('projectPickerModal');
+  const input = document.getElementById('projectPickerInput');
+  const list = document.getElementById('projectPickerList');
+  modal.classList.add('visible');
+  input.value = '';
+  input.focus();
+  list.innerHTML = '<div class="picker-empty">Loading...</div>';
+  try {
+    // Deliberately unscoped: a switcher that only lists the project you are already scoped to
+    // cannot switch anything.
+    pickerProjects = ((await fetchJSON(`/api/projects?${rangeParams()}`)) || []).sort((a, b) =>
+      sortCompare(a, b, 'totalCost', 'desc'),
+    );
+  } catch {
+    pickerProjects = [];
+    list.innerHTML = '<div class="picker-empty">Failed to load projects</div>';
+    return;
+  }
+  renderProjectPicker();
+}
+
+function closeProjectPicker() {
+  document.getElementById('projectPickerModal').classList.remove('visible');
+}
+
+function renderProjectPicker() {
+  const list = document.getElementById('projectPickerList');
+  const q = document.getElementById('projectPickerInput').value.trim().toLowerCase();
+  pickerRows = q ? pickerProjects.filter((p) => p.name.toLowerCase().includes(q)) : pickerProjects;
+  if (!pickerRows.length) {
+    list.innerHTML = '<div class="picker-empty">No projects match</div>';
+    return;
+  }
+  list.innerHTML = pickerRows
+    .map(
+      (p, i) => `<button class="picker-row" onclick="pickProject(${i})">
+        <span class="picker-name">${esc(p.name)}</span>
+        <span class="picker-cost">${formatCost(p.totalCost)}</span>
+      </button>`,
+    )
+    .join('');
+  setPickerCursor(0);
+}
+
+function setPickerCursor(idx) {
+  const list = document.getElementById('projectPickerList');
+  list.children[pickerIdx]?.classList.remove('selected');
+  pickerIdx = Math.min(Math.max(idx, 0), pickerRows.length - 1);
+  const row = list.children[pickerIdx];
+  row?.classList.add('selected');
+  row?.scrollIntoView({ block: 'nearest' });
+}
+
+function pickProject(idx) {
+  const p = pickerRows[idx];
+  if (!p) return;
+  closeProjectPicker();
+  navigateToSessions(p.encodedPath, p.name);
+}
+
+function initProjectPicker() {
+  const input = document.getElementById('projectPickerInput');
+  input.addEventListener('input', renderProjectPicker);
+  // Bound on the input because the global handler bails out on INPUT targets.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeProjectPicker();
+    } else if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
+      e.preventDefault();
+      setPickerCursor(pickerIdx + 1);
+    } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
+      e.preventDefault();
+      setPickerCursor(pickerIdx - 1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      pickProject(pickerIdx);
+    }
+  });
+}
+
+// Each entry pairs a left and a right group onto the same grid rows, so their
+// headings sit level and the shorter group just leaves empty rows.
+// `combo` joins the keys with a plus (a chord) instead of listing them as
+// alternatives; `hub` marks rows that only work inside Claude Code Hub.
+const SHORTCUT_PAIRS = [
+  [
+    {
+      title: 'Navigate',
+      rows: [
+        { keys: ['1'], label: 'Overview' },
+        { keys: ['2'], label: 'Insights' },
+        { keys: ['Backspace'], label: 'Go back' },
+        { keys: ['Shift', 'P'], combo: true, label: 'Switch project' },
+        { keys: ['Esc'], label: 'Close modal / go back' },
+      ],
+    },
+    {
+      title: 'Table',
+      rows: [
+        { keys: ['J', '↓'], label: 'Next row' },
+        { keys: ['K', '↑'], label: 'Previous row' },
+        { keys: ['Enter', 'Space'], label: 'Open selected row' },
+      ],
+    },
+  ],
+  [
+    {
+      title: 'Timeline range',
+      rows: [
+        { keys: ['←', '→'], label: 'Pan one step' },
+        { keys: ['Shift', '←/→'], combo: true, label: 'Pan a full window' },
+        { keys: ['Home', 'End'], label: 'Jump to start / end' },
+      ],
+    },
+    {
+      title: 'View',
+      rows: [
+        { keys: ['R'], label: 'Refresh data' },
+        { keys: ['T'], label: 'Toggle theme' },
+        { keys: ['?'], label: 'Show this help' },
+      ],
+    },
+  ],
+  [
+    {
+      title: 'Hub',
+      hub: true,
+      rows: [
+        { keys: ['Ctrl', 'Alt', '←/→'], combo: true, label: 'Previous / next hub app' },
+        { keys: ['Alt', '1…9'], combo: true, label: 'Jump to hub app by number' },
+        { keys: ['Ctrl', 'Alt', 'P'], combo: true, label: 'Project picker' },
+      ],
+    },
+  ],
+];
+
+const EMPTY_GROUP = { title: '', rows: [] };
+
+// Interleaves each pair's rows left-then-right so CSS grid auto-placement lands
+// them on shared row tracks (see .shortcuts in style.css).
+function buildHelpShortcuts() {
+  const cells = [];
+  SHORTCUT_PAIRS.forEach(([left, right = EMPTY_GROUP], pair) => {
+    const first = pair === 0 ? ' sc-first' : '';
+    const sides = [
+      [left, 'sc-l'],
+      [right, 'sc-r'],
+    ];
+    const head = (g, side) =>
+      g.title ? `<div class="${esc(`sc-group ${side}${first}${g.hub ? ' sc-hub' : ''}`)}">${g.title}</div>` : '';
+    cells.push(sides.map(([g, side]) => head(g, side)).join(''));
+    for (let i = 0; i < Math.max(left.rows.length, right.rows.length); i++) {
+      for (const [group, side] of sides) {
+        const row = group.rows[i];
+        if (!row) continue;
+        const sep = row.combo ? '<span class="sc-plus">+</span>' : '<span class="sc-or">/</span>';
+        const keys = row.keys.map((k) => `<kbd>${esc(k)}</kbd>`).join(sep);
+        const cls = side + (group.hub ? ' sc-hub' : '');
+        cells.push(`<dt class="${esc(cls)}">${keys}</dt><dd class="${esc(cls)}">${esc(row.label)}</dd>`);
+      }
+    }
+  });
+  return cells.join('');
+}
+
 function toggleHelpModal() {
+  const list = document.getElementById('helpShortcuts');
+  if (!list.childElementCount) list.innerHTML = buildHelpShortcuts();
+  list.classList.toggle('sc-standalone', !window.__HUB__?.enabled);
   document.getElementById('helpModal').classList.toggle('visible');
 }
 
@@ -2733,7 +2908,7 @@ document.addEventListener('keydown', (e) => {
 
   const anyModal = document.querySelector('.modal-overlay.visible');
   if (anyModal) {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' || (e.key === '?' && anyModal.id === 'helpModal')) {
       anyModal.classList.remove('visible');
       e.preventDefault();
     }
@@ -2751,6 +2926,13 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+  // Shift+P is the project switcher across the hub apps; matches memory and marketplace.
+  if (e.key === 'P' && e.shiftKey) {
+    e.preventDefault();
+    openProjectPicker();
+    return;
+  }
 
   if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
     e.preventDefault();
@@ -2989,6 +3171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   dateRange = loadDateRange();
   buildRangePresets();
   renderRangeTrigger();
+  initProjectPicker();
 
   // Resolve the scope before any navigate() so the first /api/overview already carries
   // &project=. Read window.location.search directly, not getUrlState() — that falls back to
