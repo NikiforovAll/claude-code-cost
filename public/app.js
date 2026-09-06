@@ -1015,7 +1015,7 @@ function renderSessions() {
               <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || s.sessionId)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
               <td>${formatTokens(s.totalTokens)}</td>
-              <td>${s.messageCount}${s.compactions?.count ? ` <span class="compaction-tag" title="${s.compactions.count} compaction(s), ~${formatCost(s.compactions.totalCost)}">${s.compactions.count}&times; compact</span>` : ''}</td>
+              <td>${s.messageCount}${s.compactions?.count ? ` <span class="compaction-tag" title="${esc(`${s.compactions.count} compaction(s), ~${formatCost(s.compactions.totalCost)}`)}">${s.compactions.count}&times; compact</span>` : ''}</td>
               <td class="muted">${formatDuration(s.durationMinutes)}</td>
               <td><span class="model-badge">${esc(shortModel(s.primaryModel))}</span></td>
               <td class="muted">${timeAgo(s.lastTimestamp)}</td>
@@ -1776,7 +1776,7 @@ function initRangeBrush(messages) {
   burstsEl.innerHTML = markers
     .map(
       (k) =>
-        `<button type="button" class="rb-burst${k.kind === 'compaction' ? ' compact' : ''}" data-i="${k.i}" style="left:${((k.i + 0.5) / total) * 100}%" title="${esc(k.tip)}" aria-label="${esc(k.tip)}"></button>`,
+        `<button type="button" class="rb-burst${k.kind === 'compaction' ? ' compact' : ''}" data-i="${esc(String(k.i))}" style="left:${((k.i + 0.5) / total) * 100}%" title="${esc(k.tip)}" aria-label="${esc(k.tip)}"></button>`,
     )
     .join('');
   const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: markers[k].i }));
