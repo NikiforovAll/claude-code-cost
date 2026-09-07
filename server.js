@@ -21,17 +21,21 @@ function getArg(name) {
 
 const PORT = getArg('port') || process.env.PORT || 3543;
 const claudeDirArg = getArg('dir') || process.env.CLAUDE_CONFIG_DIR || process.env.CLAUDE_DIR;
-const CLAUDE_DIR = claudeDirArg
-  ? claudeDirArg.replace(/^~/, os.homedir())
-  : path.join(os.homedir(), '.claude');
+const DEFAULT_CLAUDE_DIR = path.join(os.homedir(), '.claude');
+const CLAUDE_DIR = claudeDirArg ? claudeDirArg.replace(/^~/, os.homedir()) : DEFAULT_CLAUDE_DIR;
 
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
-const ALT_PROJECTS_DIR = path.join(os.homedir(), '.config', 'claude', 'projects');
+// XDG-style location some builds used for the default profile only. A custom
+// CLAUDE_CONFIG_DIR holds everything itself, so scanning it there would leak
+// the home profile's sessions into the custom one.
+const ALT_PROJECTS_DIR = path.resolve(CLAUDE_DIR) === path.resolve(DEFAULT_CLAUDE_DIR)
+  ? path.join(os.homedir(), '.config', 'claude', 'projects')
+  : null;
 
 function getProjectsDirs() {
   const dirs = [];
   if (fs.existsSync(PROJECTS_DIR)) dirs.push(PROJECTS_DIR);
-  if (fs.existsSync(ALT_PROJECTS_DIR)) dirs.push(ALT_PROJECTS_DIR);
+  if (ALT_PROJECTS_DIR && fs.existsSync(ALT_PROJECTS_DIR)) dirs.push(ALT_PROJECTS_DIR);
   return dirs;
 }
 

@@ -44,7 +44,7 @@ That's it — no hooks, no config. The dashboard reads the JSONL session logs Cl
 --open            Open browser on start
 ```
 
-The config dir can also be set via the `CLAUDE_CONFIG_DIR` environment variable.
+The config dir can also be set via the `CLAUDE_CONFIG_DIR` environment variable. With a custom dir only `<dir>/projects` is scanned; the default profile also picks up `~/.config/claude/projects`.
 
 ## License
 
