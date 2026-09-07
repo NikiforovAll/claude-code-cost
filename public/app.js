@@ -284,7 +284,7 @@ function migrateStoredPreset(value) {
 }
 
 // Reads the JSON tagged union and the legacy bare "3" / "today" scalar that predates it: the key is
-// a preference, so clearLocalCache() never evicts it and old values outlive any cache clear.
+// a preference, so purgeLegacyLocalCache() never evicts it and old values outlive any cache clear.
 // Anything unrecognized returns null, which lands on the default preset.
 function parseStoredRange(raw) {
   if (!raw) return null;
@@ -444,61 +444,41 @@ function updateUrl() {
 // #region FETCH
 
 const BROWSER_CACHE_TTL = 5 * 60 * 1000; // 5 min
-const CACHE_VERSION = 6;
+const MAX_CACHE_ENTRIES = 20;
 let forceRefresh = false;
 // Age of the data on screen, for the auto-refresh staleness check. A cache hit carries its own
-// timestamp forward, so a reload with a warm cache doesn't look freshly fetched.
+// timestamp forward, so a re-render from cache doesn't look freshly fetched.
 let dataFetchedAt = 0;
+
+// In memory on purpose: the server can be restarted against another CLAUDE_CONFIG_DIR (the hub does
+// this on a config-dir switch and reloads the page), and a cache that outlives the page would keep
+// showing the previous dir's data. The server's own 30 s cache absorbs the reload cost.
+const dataCache = new Map();
 
 function getCached(key) {
   if (forceRefresh) return null;
-  try {
-    const raw = localStorage.getItem(`cc-cost:${key}`);
-    if (!raw) return null;
-    const { data, ts, v } = JSON.parse(raw);
-    if (v !== CACHE_VERSION || Date.now() - ts > BROWSER_CACHE_TTL) return null;
-    dataFetchedAt = Math.max(dataFetchedAt, ts);
-    return data;
-  } catch {
+  const hit = dataCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > BROWSER_CACHE_TTL) {
+    dataCache.delete(key);
     return null;
   }
+  dataFetchedAt = Math.max(dataFetchedAt, hit.ts);
+  return hit.data;
 }
 
-function setLocalCache(key, data) {
-  try {
-    pruneLocalCache();
-    localStorage.setItem(`cc-cost:${key}`, JSON.stringify({ data, ts: Date.now(), v: CACHE_VERSION }));
-  } catch {
-    /* storage full — ignore */
-  }
-}
-
-function pruneLocalCache() {
-  const MAX_ENTRIES = 20;
-  const entries = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k.startsWith('cc-cost:')) continue;
-    // Prefs are not cache entries — they have no ts, so they'd sort oldest-first and be
-    // evicted ahead of real data while also eating the entry budget.
-    if (isPrefKey(k)) continue;
-    try {
-      const { ts } = JSON.parse(localStorage.getItem(k));
-      entries.push({ k, ts });
-    } catch {
-      entries.push({ k, ts: 0 });
-    }
-  }
-  if (entries.length <= MAX_ENTRIES) return;
-  entries.sort((a, b) => a.ts - b.ts);
-  const toRemove = entries.length - MAX_ENTRIES;
-  for (let i = 0; i < toRemove; i++) localStorage.removeItem(entries[i].k);
+function cacheData(key, data) {
+  dataCache.delete(key);
+  dataCache.set(key, { data, ts: Date.now() });
+  if (dataCache.size > MAX_CACHE_ENTRIES) dataCache.delete(dataCache.keys().next().value);
 }
 
 function isPrefKey(k) {
-  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range' || k === 'cc-cost:scope';
+  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range' || k === 'cc-cost:scope' || k === 'cc-cost:view';
 }
-function clearLocalCache() {
+
+// Earlier versions persisted API payloads under cc-cost:<url>; drop what they left behind.
+function purgeLegacyLocalCache() {
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
@@ -516,7 +496,7 @@ async function fetchJSON(url, skipCache) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   dataFetchedAt = Date.now();
-  if (!skipCache) setLocalCache(url, data);
+  if (!skipCache) cacheData(url, data);
   return data;
 }
 
@@ -2569,7 +2549,7 @@ async function refreshData() {
   const minWait = new Promise((r) => setTimeout(r, 250));
   try {
     await fetch('/api/refresh', { method: 'POST' });
-    clearLocalCache();
+    dataCache.clear();
     forceRefresh = true;
     lastRenderHash = {};
     await loadAndRender(currentView);
@@ -3033,7 +3013,7 @@ function isAppActive() {
 async function refreshIfStale() {
   if (refreshing || !isAppActive()) return;
   if (Date.now() - dataFetchedAt < BROWSER_CACHE_TTL) return;
-  // No clearLocalCache() unlike refreshData: forceRefresh already bypasses the cache read, and the
+  // No dataCache.clear() unlike refreshData: forceRefresh already bypasses the cache read, and the
   // fresh payloads overwrite their own keys. Views the user isn't on keep their cache.
   refreshing = true;
   forceRefresh = true;
@@ -3074,8 +3054,9 @@ async function refreshIfStale() {
     if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       fwd(e.key);
     }
-    // Its own branch: the Alt+digit case below requires !ctrlKey.
-    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+    // Its own branch: the Alt+digit case below requires !ctrlKey. P opens the hub's project
+    // palette, W its config-dir palette.
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && /^[pw]$/i.test(e.key)) {
       fwd(e.key);
     }
     if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
@@ -3167,6 +3148,7 @@ document.addEventListener('click', async (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  purgeLegacyLocalCache();
   const state = getUrlState();
   dateRange = loadDateRange();
   buildRangePresets();
