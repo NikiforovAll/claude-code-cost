@@ -3207,4 +3207,27 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
+const installBtn = document.getElementById('installBtn');
+let deferredInstallPrompt = null;
+
+function setInstallPrompt(e) {
+  deferredInstallPrompt = e;
+  installBtn.hidden = !e;
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  setInstallPrompt(e);
+});
+
+window.addEventListener('appinstalled', () => setInstallPrompt(null));
+
+// biome-ignore lint/correctness/noUnusedVariables: called from topbar markup
+async function promptInstall() {
+  const e = deferredInstallPrompt;
+  if (!e) return;
+  setInstallPrompt(null);
+  await e.prompt();
+}
+
 // #endregion

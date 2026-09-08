@@ -1,14 +1,21 @@
 {
+  "id": "/",
   "name": "Claude Code Cost",
   "short_name": "CC Cost",
   "description": "Cost dashboard for Claude Code usage",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "theme_color": "#101114",
   "background_color": "#101114",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-svg.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Overview", "url": "/?view=overview" },
+    { "name": "Insights", "url": "/?view=insights" }
   ]
 }

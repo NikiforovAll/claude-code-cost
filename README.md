@@ -18,6 +18,10 @@ npx claude-code-cost --open
 
 That's it — no hooks, no config. The dashboard reads the JSONL session logs Claude Code already writes to `~/.claude/projects/` and aggregates them server-side. Completely read-only; nothing leaves your machine.
 
+### Install as a desktop app
+
+The dashboard is a PWA. With the server running, open it in Chrome or Edge and click **Install** in the top bar (or the install icon in the address bar). Safari on macOS: **File → Add to Dock**. The app opens in its own window with a Start menu / Dock entry and right-click shortcuts to Overview and Insights. The server still has to be running; the installed app is a window onto `http://localhost:3543`.
+
 ## Features
 
 - **Top-down drill-down** — total → project → session → message; every number is one click from its breakdown
