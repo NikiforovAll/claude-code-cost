@@ -98,6 +98,7 @@ function meter(pct, { label = '', cls = '', ariaLabel = '' } = {}) {
 function formatDuration(minutes) {
   if (!minutes || minutes < 1) return '<1m';
   if (minutes < 60) return `${minutes}m`;
+  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
@@ -830,7 +831,7 @@ function renderInsights() {
       ${viewTabs('insights')}
       ${scopeIndicator()}
       <div class="cards-row">
-        <div class="stat-card">
+        <div class="stat-card clickable" role="button" tabindex="0" title="Show plan usage" onclick="openLimitsModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLimitsModal()}">
           <div class="card-label">Active 5h Block</div>
           <div class="card-value cost">${ab ? formatCost(ab.cost) : '—'}</div>
           ${ab?.usedPct == null ? '' : meter(ab.usedPct, { label: `${Math.round(ab.usedPct)}%`, ariaLabel: `${Math.round(ab.usedPct)}% of the 5h block used` })}
@@ -2774,6 +2775,7 @@ const SHORTCUT_PAIRS = [
       rows: [
         { keys: ['R'], label: 'Refresh data' },
         { keys: ['T'], label: 'Toggle theme' },
+        { keys: ['Ctrl', 'Shift', 'S'], combo: true, label: 'Plan usage' },
         { keys: ['?'], label: 'Show this help' },
       ],
     },
@@ -2818,6 +2820,235 @@ function buildHelpShortcuts() {
     }
   });
   return cells.join('');
+}
+
+// Reached only from inline handlers (the card markup, the modal's buttons, the window tabs), which
+// the linter cannot see. The aliases are what tell it these are live.
+window.openLimitsModal = openLimitsModal;
+window.closeLimitsModal = closeLimitsModal;
+window.refreshLimits = refreshLimits;
+window.setBehaviorsWindow = setBehaviorsWindow;
+window.toggleWindowsInfo = toggleWindowsInfo;
+window.toggleBehaviorsInfo = toggleBehaviorsInfo;
+
+// The statusline file on disk only knows five_hour/seven_day; the plan's per-model windows come
+// from the CLI's get_usage control request, which the server probes on demand.
+let limitsData = null;
+let limitsBusy = false;
+let behaviorsWindow = 'week';
+let behaviorsInfoOpen = false;
+let windowsInfoOpen = false;
+
+const INFO_SVG =
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+
+// Thresholds read out of the minified CLI that computes these rows, so a release can move them
+// without warning. The units differ. cache_miss, long_context and high_parallel score single
+// requests, while subagent_heavy and cron score a whole session and charge all of its cost to the
+// row.
+const BEHAVIOR_HELP = {
+  cache_miss: 'Requests that sent more than 100k uncached input tokens.',
+  long_context: 'Requests carrying more than 150k input tokens in total, cached or not.',
+  subagent_heavy:
+    'Sessions with 3 or more subagent requests, or more than half their cost spent in subagents. The whole session counts.',
+  high_parallel: 'Five-minute stretches with 4 or more sessions running at once.',
+  cron: 'Sessions active across 8 or more clock hours. The whole session counts, and nothing checks whether it was really scheduled.',
+};
+
+function openLimitsModal() {
+  document.getElementById('limitsModal').classList.add('visible');
+  if (limitsData) renderLimits();
+  else
+    document.getElementById('limitsBody').innerHTML =
+      '<div class="loading-state"><div class="loading-spinner"></div><span>Asking Claude Code for plan usage...</span></div>';
+  loadLimits(false);
+}
+
+function refreshLimits() {
+  loadLimits(true);
+}
+
+function loadLimits(force) {
+  if (limitsBusy) return;
+  limitsBusy = true;
+  const btn = document.getElementById('limitsRefresh');
+  btn?.classList.add('spinning');
+
+  fetch(`/api/usage-limits${force ? '?refresh=1' : ''}`)
+    .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(new Error(e.error || 'unavailable')))))
+    .then((d) => {
+      if (!d) return;
+      limitsData = d;
+      renderLimits();
+    })
+    .catch((err) => {
+      if (limitsData) {
+        showToast(`Refresh failed: ${err.message}`);
+      } else {
+        document.getElementById('limitsBody').innerHTML =
+          `<p class="modal-note">Could not read plan usage: ${esc(err.message)}</p>
+         <p class="modal-note">The dashboard asks the local <code>claude</code> CLI for them. They are unavailable on API-key, Bedrock and Vertex sessions.</p>`;
+      }
+    })
+    .finally(() => {
+      limitsBusy = false;
+      btn?.classList.remove('spinning');
+    });
+}
+
+function closeLimitsModal() {
+  document.getElementById('limitsModal').classList.remove('visible');
+}
+
+function setBehaviorsWindow(win) {
+  behaviorsWindow = win;
+  redrawBehaviors();
+}
+
+function redrawBehaviors() {
+  const host = document.getElementById('limitsBehaviors');
+  if (host) host.innerHTML = renderBehaviors(limitsData?.behaviors);
+}
+
+function toggleBehaviorsInfo() {
+  behaviorsInfoOpen = !behaviorsInfoOpen;
+  redrawBehaviors();
+}
+
+function toggleWindowsInfo() {
+  windowsInfoOpen = !windowsInfoOpen;
+  renderLimits();
+}
+
+function formatUntil(iso) {
+  if (!iso) return '';
+  const mins = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  if (!Number.isFinite(mins) || mins <= 0) return 'resetting';
+  return `${formatDuration(mins)} left`;
+}
+
+function limitRow(w) {
+  const pct = Math.round(w.percent);
+  return `<div class="limit-row pace-${esc(w.severity || 'ok')}">
+    <div class="limit-head">
+      <span class="limit-label">${esc(w.label)}${w.binding ? '<span class="limit-badge">binding</span>' : ''}</span>
+      <span class="limit-pct">${pct}%</span>
+    </div>
+    ${meter(w.percent, { ariaLabel: `${w.label} ${pct}% used` })}
+    <div class="limit-sub">${esc(formatUntil(w.resetsAt))}</div>
+  </div>`;
+}
+
+// Bars run on the absolute 0-100 scale rather than normalized to the row max. These are shares of
+// total usage, and stretching a 2% skill to a full bar would read as "this is what's burning the
+// plan". The floor keeps a 1% row visible; a true 0 stays empty so it cannot be mistaken for one.
+function barList(title, rows, help) {
+  if (!rows?.length) return '';
+  return `<div class="bar-group">
+    <div class="bar-group-title">${esc(title)}</div>
+    ${rows
+      .map((r) => {
+        const name = r.name || r.key;
+        const v = r.pct ?? 0;
+        const hint = help?.[r.key];
+        return `<div class="bar-row${v ? '' : ' zero'}">
+          <span class="bar-name${hint ? ' has-hint' : ''}" title="${esc(hint ? `${name}. ${hint}` : name)}">${esc(name)}</span>
+          ${meter(v ? Math.max(1.5, v) : 0, { ariaLabel: `${name} ${v}%` })}
+          <span class="bar-val">${v}%</span>
+        </div>`;
+      })
+      .join('')}
+  </div>`;
+}
+
+// The CLI drops behaviors that cost nothing, but "no session ran long enough to count as cron" is
+// worth seeing, so the missing keys come back at 0%. Behaviors are a closed set upstream; anything
+// new it starts reporting still renders, since only absent keys get appended.
+function withIdleBehaviors(rows = []) {
+  const seen = new Set(rows.map((r) => r.key));
+  const idle = Object.keys(BEHAVIOR_HELP)
+    .filter((key) => !seen.has(key))
+    .map((key) => ({ key, pct: 0 }));
+  return [...rows, ...idle];
+}
+
+function renderBehaviors(b) {
+  if (!b) {
+    return `<div class="limits-section">
+      <div class="section-title">What's driving it</div>
+      <p class="modal-note">Claude Code reported no transcript breakdown.</p>
+    </div>`;
+  }
+  const w = b[behaviorsWindow];
+  if (!w) return '';
+  const tab = (key, label) =>
+    `<button class="seg-btn${behaviorsWindow === key ? ' on' : ''}" onclick="setBehaviorsWindow('${escAttrJs(key)}')">${label}</button>`;
+  return `<div class="limits-section">
+    <div class="limits-section-head">
+      <div class="limits-section-label">
+        <div class="section-title">What's driving it</div>
+        <button class="modal-icon-btn${behaviorsInfoOpen ? ' on' : ''}" aria-label="What these percentages mean" aria-expanded="${esc(String(behaviorsInfoOpen))}" title="What these percentages mean" onclick="toggleBehaviorsInfo()">${INFO_SVG}</button>
+      </div>
+      <div class="seg">${tab('day', '24h')}${tab('week', '7d')}</div>
+    </div>
+    <p class="modal-note">${w.request_count} requests across ${w.session_count} sessions &middot; from local transcripts, not the server</p>
+    ${
+      behaviorsInfoOpen
+        ? `<div class="info-note">
+             <p>Share of estimated cost, not of requests. Read from local transcripts.</p>
+             <p>Rows overlap, so they will not total 100%. <code>subagent_heavy</code> and <code>cron</code> charge a whole session's cost to one row. Hover a name for its rule.</p>
+             <p>Agents lists skill-launched work under the skill's name. None of this relates to the plan windows above.</p>
+           </div>`
+        : ''
+    }
+    ${barList('Behaviors', withIdleBehaviors(w.behaviors), BEHAVIOR_HELP)}
+    ${barList('Agents', w.agents)}
+    ${barList('Skills', w.skills)}
+    ${barList('Plugins', w.plugins)}
+    ${barList('MCP servers', w.mcp_servers)}
+  </div>`;
+}
+
+function renderLimits() {
+  const d = limitsData;
+  if (!d) return;
+  const spend = d.spend;
+  const info = document.getElementById('limitsWindowsInfo');
+  info.classList.toggle('on', windowsInfoOpen);
+  info.setAttribute('aria-expanded', String(windowsInfoOpen));
+  document.getElementById('limitsBody').innerHTML = `
+    <p class="modal-note">${d.subscription ? `${esc(d.subscription)} plan` : 'plan unknown'} &middot; read ${esc(timeAgo(d.fetchedAt))} &middot; Claude refreshes plan usage at most every 5 min</p>
+    ${
+      windowsInfoOpen
+        ? `<div class="info-note">
+             <p>100% is the cap. Windows count independently, so one request hits several and the bars never add up. <strong>Binding</strong> is the one you run out of first.</p>
+             <p>Claude reports these. The cost estimates in this dashboard do not feed them.</p>
+           </div>`
+        : ''
+    }
+    <div class="limits-section">
+      ${d.windows.length ? d.windows.map(limitRow).join('') : '<p class="modal-note">No plan windows reported.</p>'}
+    </div>
+    ${
+      spend
+        ? `<div class="limits-section">
+             <div class="section-title">Usage credits</div>
+             ${
+               spend.enabled
+                 ? limitRow({
+                     label: 'Credit spend',
+                     percent: spend.percent ?? 0,
+                     severity: spend.severity,
+                     resetsAt: null,
+                     binding: false,
+                   })
+                 : `<p class="modal-note">Disabled${spend.disabledReason ? ` &middot; ${esc(spend.disabledReason)}` : ''}. Nothing covers you past the plan limits.</p>`
+}
+           </div>`
+        : ''
+    }
+    <div id="limitsBehaviors">${renderBehaviors(d.behaviors)}</div>
+  `;
 }
 
 function toggleHelpModal() {
@@ -2902,6 +3133,12 @@ document.addEventListener('keydown', (e) => {
       closeRangePicker();
       e.preventDefault();
     }
+    return;
+  }
+
+  if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.key === 'S' || e.key === 's')) {
+    e.preventDefault();
+    openLimitsModal();
     return;
   }
 

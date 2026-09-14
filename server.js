@@ -8,6 +8,7 @@ const { createReadStream } = require('fs');
 const { createInterface } = require('readline');
 const os = require('os');
 const { createNetGuard } = require('./lib/net-guard');
+const { probeUsage, normalizeUsage } = require('./lib/usage-probe');
 
 // #region CLI_ARGS
 
@@ -1460,6 +1461,45 @@ app.get('/api/sessions/:id', withRange(), async (req, res) => {
   } catch (err) {
     console.error('[API] session detail error:', err);
     res.status(500).json({ error: 'Failed to load session detail' });
+  }
+});
+
+// Each probe spawns a CLI process and fires the config dir's SessionStart hooks, so we cache the
+// result and let concurrent callers share one in-flight run.
+//
+// The TTL mirrors the CLI's own: it refetches plan utilization at most every 5 minutes and shares
+// the answer through an on-disk cache, so probing faster re-reads the same numbers. A manual
+// refresh bypasses this cache but still cannot beat that floor.
+const USAGE_TTL_MS = 5 * 60 * 1000;
+let usageCache = null;
+let usageInFlight = null;
+
+function loadUsage(force = false) {
+  if (!force && usageCache && Date.now() - usageCache.ts < USAGE_TTL_MS) {
+    return Promise.resolve(usageCache.data);
+  }
+  // A forced call still joins an in-flight probe: two spawns would only race for the same answer.
+  if (usageInFlight) return usageInFlight;
+  usageInFlight = probeUsage({ claudeDir: CLAUDE_DIR })
+    .then((raw) => {
+      const data = normalizeUsage(raw);
+      if (data) usageCache = { data, ts: Date.now() };
+      return data;
+    })
+    .finally(() => {
+      usageInFlight = null;
+    });
+  return usageInFlight;
+}
+
+app.get('/api/usage-limits', async (req, res) => {
+  try {
+    const data = await loadUsage(req.query.refresh === '1');
+    if (!data) return res.status(503).json({ error: 'No usage data returned' });
+    res.json(data);
+  } catch (err) {
+    console.error('[API] usage-limits error:', err.message);
+    res.status(503).json({ error: err.message });
   }
 });
 
