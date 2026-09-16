@@ -494,7 +494,11 @@ async function fetchJSON(url, skipCache) {
     if (cached) return cached;
   }
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   const data = await res.json();
   dataFetchedAt = Date.now();
   if (!skipCache) cacheData(url, data);
@@ -1112,7 +1116,7 @@ function renderDetail() {
     destroyChart('cumulative');
     destroyChart('tokenBreakdown');
     applyDetailRange(d.messages, detailRangeFor(d));
-    initRangeBrush(d.messages);
+    initRangeBrush(d.messages, d.workflows);
   });
 }
 
@@ -1726,6 +1730,7 @@ function rangeBrushHtml(total) {
         <div class="rb-track" tabindex="0" role="slider" aria-label="Visible message range"
              aria-valuemin="1" aria-valuemax="${esc(total)}">
           ${rangeOverviewSvg}
+          <div class="rb-spans"></div>
           <div class="rb-bursts"></div>
           <div class="rb-window">
             <div class="rb-handle rb-handle-left" data-edge="start"></div>
@@ -1740,7 +1745,7 @@ function rangeBrushHtml(total) {
 const rangeOverviewSvg =
   '<svg class="rb-overview" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><polygon /><polyline /></svg>';
 
-function initRangeBrush(messages) {
+function initRangeBrush(messages, workflows) {
   const root = document.getElementById('rangeBrush');
   if (!root) return;
   const total = messages.length;
@@ -1757,6 +1762,16 @@ function initRangeBrush(messages) {
 
   drawRangeOverview(q('.rb-overview'), messages);
 
+  const runs = workflows || [];
+  q('.rb-spans').innerHTML = runs
+    .map((w) => {
+      const left = ((w.startIndex - 1) / total) * 100;
+      const width = Math.max(((w.endIndex - w.startIndex + 1) / total) * 100, 0.6);
+      const tip = `${w.name} · ${w.agents} agent${w.agents === 1 ? '' : 's'} · ${formatCost(w.totalCost)}`;
+      return `<span class="rb-span" style="left:${left}%;width:${width}%" title="${esc(tip)}"><i>${esc(w.name)}</i></span>`;
+    })
+    .join('');
+
   const markers = notableEvents(messages);
   const burstsEl = q('.rb-bursts');
   burstsEl.innerHTML = markers
@@ -1767,12 +1782,12 @@ function initRangeBrush(messages) {
     .join('');
   const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: markers[k].i }));
   const counts = [
-    ['burst', 'cache burst', ''],
-    ['compaction', 'compaction', ' class="compact"'],
-  ].flatMap(([kind, label, attr]) => {
-    const n = markers.filter((k) => k.kind === kind).length;
-    return n ? [`<span${attr}><i></i>${n} ${label}${n === 1 ? '' : 's'}</span>`] : [];
-  });
+    [markers.filter((k) => k.kind === 'burst').length, 'cache burst', ''],
+    [markers.filter((k) => k.kind === 'compaction').length, 'compaction', ' class="compact"'],
+    [runs.length, 'workflow', ' class="workflow"'],
+  ]
+    .filter(([n]) => n)
+    .map(([n, label, attr]) => `<span${attr}><i></i>${n} ${label}${n === 1 ? '' : 's'}</span>`);
   if (counts.length) {
     burstCount.hidden = false;
     burstCount.innerHTML = counts.join('<span class="rb-sep">·</span>');
@@ -2617,6 +2632,15 @@ async function loadAndRender(view) {
   } catch (err) {
     if (myNav !== navCounter) return;
     console.error(`Failed to load ${view}:`, err);
+    // The cursor is restored from sessionStorage when the iframe reloads with no query, so a
+    // config-dir switch leaves it pointing at a session the new dir never had. A 404 there is a
+    // stale cursor, not a broken app: drop it and land on the overview.
+    if (err.status === 404 && view === 'detail') {
+      sessionDetailData = null;
+      showToast('Not in this config dir — showing overview');
+      await navigate('overview');
+      return;
+    }
     showToast(`Error: ${err.message}`);
     const viewEl = document.getElementById(`${view}-view`);
     if (viewEl) viewEl.innerHTML = `<div class="loading-state"><span>Failed to load data: ${err.message}</span></div>`;
@@ -3043,7 +3067,7 @@ function renderLimits() {
                      binding: false,
                    })
                  : `<p class="modal-note">Disabled${spend.disabledReason ? ` &middot; ${esc(spend.disabledReason)}` : ''}. Nothing covers you past the plan limits.</p>`
-}
+             }
            </div>`
         : ''
     }

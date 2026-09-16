@@ -433,7 +433,10 @@ function collectAgents(dir, workflowId, out) {
       }
       continue;
     }
-    if (!e.name.endsWith('.jsonl')) continue;
+    // A workflow run also drops its journal.jsonl next to the agents; only `agent-*.jsonl` is a
+    // transcript, and counting the journal inflated the run's agent count by one and stretched its
+    // span, since a file with no priced turns falls back to the session's own start time.
+    if (!e.name.startsWith('agent-') || !e.name.endsWith('.jsonl')) continue;
     const agentId = e.name.replace('.jsonl', '');
     let meta = {};
     try { meta = JSON.parse(fs.readFileSync(path.join(dir, `${agentId}.meta.json`), 'utf-8')); } catch { /* no meta */ }
@@ -499,31 +502,43 @@ async function loadSubagentData(subagentInfos, pricing) {
       messageCount: 0,
       models: new Set(),
       firstTimestamp: null,
+      lastTimestamp: null,
     };
-    const seen = new Set();
+    // An agent log writes one line per streamed content block, each carrying the usage as it stood
+    // then, so a turn's first line can report one output token and its last the whole reply: the
+    // turn is the largest usage logged for its (message.id, requestId). The session log repeats the
+    // final usage on every line, which is why first-wins reads the same there.
+    const kept = new Map();
+    const unhashed = [];
     await processJSONLFile(info.filePath, async (line) => {
       let parsed;
       try { parsed = JSON.parse(line); } catch { return; }
-      if (!parsed.message?.usage?.input_tokens && parsed.message?.usage?.input_tokens !== 0) return;
+      const usage = parsed.message?.usage;
+      if (!usage?.input_tokens && usage?.input_tokens !== 0) return;
       if (!parsed.timestamp) return;
 
+      // Only what the totals need: `parsed` also holds the turn's content blocks.
+      const entry = { costUSD: parsed.costUSD, timestamp: parsed.timestamp, message: { model: parsed.message.model, usage } };
       const hash = createDedupeHash(parsed);
-      if (hash && seen.has(hash)) return;
-      if (hash) seen.add(hash);
-
-      const cost = calculateEntryCost(parsed, pricing);
-      const usage = parsed.message.usage;
-      agent.totalCost += cost;
-      agent.inputTokens += usage.input_tokens || 0;
-      agent.outputTokens += usage.output_tokens || 0;
-      agent.cacheCreationTokens += (usage.cache_creation_input_tokens || 0);
-      agent.cacheReadTokens += (usage.cache_read_input_tokens || 0);
-      agent.messageCount++;
-      agent.models.add(parsed.message?.model || 'unknown');
-      if (!agent.firstTimestamp || parsed.timestamp < agent.firstTimestamp) {
-        agent.firstTimestamp = parsed.timestamp;
-      }
+      if (!hash) { unhashed.push(entry); return; }
+      const prev = kept.get(hash);
+      if (!prev || (usage.output_tokens || 0) > (prev.message.usage.output_tokens || 0)) kept.set(hash, entry);
     });
+    const turns = [...kept.values(), ...unhashed].map(e => ({
+      cost: calculateEntryCost(e, pricing),
+      inputTokens: e.message.usage.input_tokens || 0,
+      outputTokens: e.message.usage.output_tokens || 0,
+      cacheCreationTokens: e.message.usage.cache_creation_input_tokens || 0,
+      cacheReadTokens: e.message.usage.cache_read_input_tokens || 0,
+      model: e.message.model || 'unknown',
+      timestamp: e.timestamp,
+    }));
+    Object.assign(agent, summarizeMessages(turns));
+    for (const t of turns) {
+      agent.models.add(t.model);
+      if (!agent.firstTimestamp || t.timestamp < agent.firstTimestamp) agent.firstTimestamp = t.timestamp;
+      if (!agent.lastTimestamp || t.timestamp > agent.lastTimestamp) agent.lastTimestamp = t.timestamp;
+    }
     agent.models = [...agent.models];
     return agent;
   }));
@@ -635,6 +650,10 @@ async function loadProjectData(files, pricing) {
     if (subagentInfos.length > 0) {
       const subagents = await loadSubagentData(subagentInfos, pricing);
       for (const sa of subagents) {
+        // An agent log with no priced turns — empty, truncated, or a crash before the first
+        // response — would fold in as a zero-cost message dated at the session's own start,
+        // which stretches every span it lands in.
+        if (sa.messageCount === 0) continue;
         session.totalCost += sa.totalCost;
         session.inputTokens += sa.inputTokens;
         session.outputTokens += sa.outputTokens;
@@ -650,7 +669,7 @@ async function loadProjectData(files, pricing) {
           cacheCreationTokens: sa.cacheCreationTokens,
           cacheReadTokens: sa.cacheReadTokens,
           speed: 'standard',
-          _subagent: { agentId: sa.agentId, agentType: sa.agentType, description: sa.description, messageCount: sa.messageCount, workflowId: sa.workflowId },
+          _subagent: { agentId: sa.agentId, agentType: sa.agentType, description: sa.description, messageCount: sa.messageCount, workflowId: sa.workflowId, lastTimestamp: sa.lastTimestamp },
         });
       }
     }
@@ -1062,12 +1081,21 @@ async function getSessionDetailData(sessionId) {
       : new Map();
     const workflows = [...byWorkflow].map(([id, msgs]) => {
       const { messageCount, ...totals } = summarizeMessages(msgs);
+      // A folded message carries its agent's start time, so the run ends at the latest agent's
+      // own last turn — the last folded message only says when that agent started.
+      const end = msgs.reduce((max, m) => {
+        const t = m._subagent.lastTimestamp || m.timestamp;
+        return t > max ? t : max;
+      }, msgs[0].timestamp);
       return {
         id,
         name: names.get(id) || id,
         agents: messageCount,
         firstTimestamp: msgs[0].timestamp,
-        lastTimestamp: msgs.at(-1).timestamp,
+        lastTimestamp: end,
+        // Where the run sits in `messages`, for the timeline band.
+        startIndex: msgs[0].index,
+        endIndex: msgs.at(-1).index,
         ...totals,
       };
     }).sort((a, b) => b.totalCost - a.totalCost);

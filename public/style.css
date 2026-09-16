@@ -30,6 +30,7 @@
   --chart-5: #b784f5;
   --chart-6: #fb7185;
   --compact: var(--chart-5);
+  --workflow: var(--chart-2);
 }
 
 /* #endregion */
@@ -842,6 +843,15 @@ body {
   color: var(--compact);
 }
 
+.rb-burst-count .workflow {
+  color: var(--workflow);
+}
+
+.rb-burst-count .workflow i {
+  border-radius: 1px;
+  background: var(--workflow);
+}
+
 .rb-burst-count .compact i,
 .rb-burst.compact::after {
   border-radius: 1px;
@@ -919,10 +929,36 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-.rb-bursts {
+.rb-bursts,
+.rb-spans {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+.rb-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--workflow) 16%, transparent);
+  border-left: 1px solid var(--workflow);
+  border-right: 1px solid var(--workflow);
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.rb-span i {
+  position: absolute;
+  bottom: 2px;
+  left: 3px;
+  right: 2px;
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.03em;
+  color: var(--workflow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rb-burst {
