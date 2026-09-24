@@ -2758,6 +2758,20 @@ function initProjectPicker() {
       pickProject(pickerIdx);
     }
   });
+  // Vimium eats Escape inside a text input and only blurs it, so the page never sees the key.
+  // A blur that no click in the picker caused, while the window keeps focus and the input is
+  // still shown, is that Escape.
+  const modal = document.getElementById('projectPickerModal');
+  let pointerDown = false;
+  modal.addEventListener('mousedown', () => {
+    pointerDown = true;
+  });
+  document.addEventListener('mouseup', () => {
+    pointerDown = false;
+  });
+  input.addEventListener('blur', () => {
+    if (!pointerDown && document.hasFocus() && input.checkVisibility()) closeProjectPicker();
+  });
 }
 
 // Each entry pairs a left and a right group onto the same grid rows, so their
