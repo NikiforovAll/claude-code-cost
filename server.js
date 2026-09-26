@@ -411,6 +411,33 @@ function decodeProjectPath(encoded) {
   } catch { return encoded; }
 }
 
+// The folder name is lossy (separators and hyphens both become "-"), so the cwd a transcript
+// records names the project; the decode is the fallback for folders with no cwd line.
+const CWD_RE = /"cwd":"((?:[^"\\]|\\.)*)"/;
+const projectNames = new Map();
+
+function readCwd(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(64 * 1024);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const m = buf.toString('utf-8', 0, n).match(CWD_RE);
+    return m ? JSON.parse(`"${m[1]}"`) : null;
+  } catch { return null; } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function projectName(encodedPath, files) {
+  if (projectNames.has(encodedPath)) return projectNames.get(encodedPath);
+  const cwd = files.slice(0, 3).map(readCwd).find(Boolean);
+  if (!cwd) return decodeProjectPath(encodedPath);
+  const name = cwd.split(/[\\/]/).filter(Boolean).pop() || decodeProjectPath(encodedPath);
+  projectNames.set(encodedPath, name);
+  return name;
+}
+
 function getSessionIdFromFile(filePath) {
   return path.basename(filePath, '.jsonl');
 }
@@ -859,7 +886,7 @@ async function getOverviewData(range, projectFilter) {
     if (projSessions > 0) {
       projectSummaries.push({
         encodedPath,
-        name: decodeProjectPath(encodedPath),
+        name: projectName(encodedPath, proj.files),
         totalCost: projCost,
         sessionCount: projSessions,
         lastActive: projLastActive,
@@ -935,7 +962,7 @@ async function getProjectsData(range, projectFilter) {
     if (sessionCount > 0) {
       result.push({
         encodedPath,
-        name: decodeProjectPath(encodedPath),
+        name: projectName(encodedPath, proj.files),
         totalCost,
         sessionCount,
         lastActive,
@@ -1103,7 +1130,7 @@ async function getSessionDetailData(sessionId) {
     const result = {
       sessionId,
       customTitle: session.customTitle,
-      projectPath: decodeProjectPath(encodedPath),
+      projectPath: projectName(encodedPath, [matchingFile]),
       encodedProjectPath: encodedPath,
       totalCost: session.totalCost,
       inputTokens: session.inputTokens,
