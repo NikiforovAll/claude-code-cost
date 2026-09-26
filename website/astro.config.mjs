@@ -11,6 +11,10 @@ export default defineConfig({
 			title: 'Claude Code Cost',
 			description: 'See what Claude Code costs you per day, project, session, and message.',
 			favicon: '/favicon.svg',
+			head: [
+				{ tag: 'meta', attrs: { property: 'og:image', content: 'https://nikiforovall.blog/claude-code-cost/og.png' } },
+				{ tag: 'meta', attrs: { name: 'twitter:image', content: 'https://nikiforovall.blog/claude-code-cost/og.png' } },
+			],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/NikiforovAll/claude-code-cost' }],
 			editLink: { baseUrl: 'https://github.com/NikiforovAll/claude-code-cost/edit/main/website/' },
 			customCss: ['./src/kit/kit.css'],
