@@ -1346,6 +1346,160 @@ body.light .rb-window {
   animation: spin 0.8s linear infinite;
 }
 
+.skeleton-fade {
+  animation: boot-fade 0.3s ease-out 0.15s both;
+}
+
+.skeleton .breadcrumb .skel {
+  width: 220px;
+}
+
+.skel {
+  display: block;
+  height: 9px;
+  width: 60%;
+  border-radius: 4px;
+  background: var(--border);
+  animation: skel-breathe 1.4s ease-in-out infinite;
+}
+
+.skeleton .card-label.skel {
+  width: 40%;
+}
+
+.skeleton .card-value.skel {
+  height: 22px;
+  width: 55%;
+}
+
+.skeleton .card-sub.skel {
+  width: 70%;
+  margin-top: 14px;
+}
+
+.skeleton .chart-title.skel {
+  width: 30%;
+}
+
+.skel-tabs {
+  display: flex;
+  gap: 16px;
+  padding: 10px 4px 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.skel-tabs .skel {
+  width: 70px;
+}
+
+.skel-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 150px;
+}
+
+.skel-plot > .skel {
+  flex: 1;
+  height: var(--h);
+  width: auto;
+  border-radius: 3px 3px 0 0;
+}
+
+.skel-plot .clawd-boot {
+  position: absolute;
+  inset: 0;
+}
+
+.skel-donut {
+  width: 130px;
+  height: 130px;
+  margin: 10px auto;
+  border-radius: 50%;
+  border: 18px solid var(--border);
+  animation: skel-breathe 1.4s ease-in-out infinite;
+}
+
+.skel-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.skel-table > div {
+  display: flex;
+  gap: 24px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.skel-table .skel:first-child {
+  width: 40%;
+}
+
+.skel-table .skel {
+  width: 12%;
+}
+
+.clawd-boot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.clawd {
+  width: 64px;
+  height: 40px;
+  fill: #d97757;
+  overflow: visible;
+  transform-origin: 50% 100%;
+  animation: clawd-jump 0.9s ease-in-out infinite;
+}
+
+@keyframes skel-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes boot-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes clawd-jump {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  15% {
+    transform: translateY(0) scale(1.1, 0.85);
+  }
+  45% {
+    transform: translateY(-14px) scale(0.95, 1.05);
+  }
+  70% {
+    transform: translateY(0) scale(1.08, 0.9);
+  }
+  85% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel,
+  .skel-donut,
+  .clawd {
+    animation: none;
+  }
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;

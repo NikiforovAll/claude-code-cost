@@ -563,13 +563,51 @@ async function fetchSessionDetail(sessionId) {
 
 // #endregion
 
+// #region LOADING
+
+const BOOT_VERBS = ['Clawding…', 'Counting tokens…', 'Tallying costs…', 'Pricing models…', 'Crunching sessions…'];
+let booted = false;
+
+const CLAWD_SVG = `<svg class="clawd" viewBox="1 0 16 10" shape-rendering="crispEdges">
+  <rect x="3" y="0" width="12" height="2"/><rect x="3" y="2" width="2" height="2"/>
+  <rect x="6" y="2" width="6" height="2"/><rect x="13" y="2" width="2" height="2"/>
+  <rect x="1" y="4" width="16" height="2"/><rect x="3" y="6" width="12" height="2"/>
+  <rect x="4" y="8" width="1" height="2"/><rect x="6" y="8" width="1" height="2"/>
+  <rect x="11" y="8" width="1" height="2"/><rect x="13" y="8" width="1" height="2"/>
+</svg>`;
+
+const SKEL_BARS = [35, 60, 45, 80, 55, 70, 40, 90, 65, 50, 75, 30];
+
+function skeletonHtml(view) {
+  const line = '<span class="skel"></span>';
+  const cards = `<div class="cards-row">${'<div class="stat-card"><span class="skel card-label"></span><span class="skel card-value"></span><span class="skel card-sub"></span></div>'.repeat(4)}</div>`;
+  const plot = booted
+    ? SKEL_BARS.map((h) => `<span class="skel" style="--h:${h}%"></span>`).join('')
+    : `<div class="clawd-boot">${CLAWD_SVG}<span>${BOOT_VERBS[Math.floor(Math.random() * BOOT_VERBS.length)]}</span></div>`;
+  const charts = `<div class="charts-row">
+    <div class="chart-box"><span class="skel chart-title"></span><div class="skel-plot">${plot}</div></div>
+    <div class="chart-box"><span class="skel chart-title"></span><div class="skel-donut"></div></div>
+  </div>`;
+  const table = `<div class="skel-table">${`<div>${line.repeat(4)}</div>`.repeat(6)}</div>`;
+  const head =
+    view === 'overview' || view === 'insights'
+      ? `<div class="skel-tabs">${line.repeat(2)}</div>`
+      : `<div class="breadcrumb">${line}</div>`;
+  const body = view === 'sessions' ? charts + table : cards + charts + table;
+  // The first JS skeleton replaces the static one from index.html; fading it in again would blink.
+  const fade = booted ? ' skeleton-fade' : '';
+  return `<div class="dashboard-content skeleton${fade}" aria-busy="true" aria-label="Loading">${head}${body}</div>`;
+}
+
+// #endregion
+
 // #region RENDER_OVERVIEW
 
 function renderOverview() {
   const el = document.getElementById('overview-view');
   if (!el) return;
   if (!overviewData) {
-    el.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
+    el.innerHTML = skeletonHtml('overview');
     return;
   }
 
@@ -812,7 +850,7 @@ function renderInsights() {
   const el = document.getElementById('insights-view');
   if (!el) return;
   if (!insightsData) {
-    el.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
+    el.innerHTML = skeletonHtml('insights');
     return;
   }
 
@@ -938,7 +976,7 @@ function renderSessions() {
   const el = document.getElementById('sessions-view');
   if (!el) return;
   if (!sessionsData) {
-    el.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
+    el.innerHTML = skeletonHtml('sessions');
     return;
   }
 
@@ -1025,7 +1063,7 @@ function renderDetail() {
   const el = document.getElementById('detail-view');
   if (!el) return;
   if (!sessionDetailData) {
-    el.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
+    el.innerHTML = skeletonHtml('detail');
     return;
   }
 
@@ -2589,7 +2627,7 @@ async function loadAndRender(view) {
   if (viewEl) {
     const hasContent = viewEl.querySelector('.dashboard-content');
     if (!hasContent) {
-      viewEl.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><span>Loading...</span></div>';
+      viewEl.innerHTML = skeletonHtml(view);
     }
   }
 
@@ -2644,6 +2682,8 @@ async function loadAndRender(view) {
     showToast(`Error: ${err.message}`);
     const viewEl = document.getElementById(`${view}-view`);
     if (viewEl) viewEl.innerHTML = `<div class="loading-state"><span>Failed to load data: ${err.message}</span></div>`;
+  } finally {
+    if (myNav === navCounter) booted = true;
   }
 }
 
