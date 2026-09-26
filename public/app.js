@@ -596,7 +596,7 @@ function skeletonHtml(view) {
   const body = view === 'sessions' ? charts + table : cards + charts + table;
   // The first JS skeleton replaces the static one from index.html; fading it in again would blink.
   const fade = booted ? ' skeleton-fade' : '';
-  return `<div class="dashboard-content skeleton${fade}" aria-busy="true" aria-label="Loading">${head}${body}</div>`;
+  return `<div class="dashboard-content skeleton${esc(fade)}" aria-busy="true" aria-label="Loading">${head}${body}</div>`;
 }
 
 // #endregion
