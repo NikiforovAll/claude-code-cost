@@ -1,0 +1,107 @@
+---
+title: Keyboard shortcuts
+description: Every key Claude Code Cost responds to, when it ignores a key, and which keys it sends to Claude Code Hub.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+Press <kbd>?</kbd> to open the help dialog. It lists the same keys as the tables below, in the same groups. Press <kbd>?</kbd> or <kbd>Esc</kbd> to close it.
+
+<Shot themed="h2b-hub-cost-shortcuts" alt="The Keyboard Shortcuts help dialog with the Navigate, Table, Timeline range, View and Hub groups" />
+
+## Navigate
+
+| Key | Action |
+| --- | --- |
+| <kbd>1</kbd> | Open Overview |
+| <kbd>2</kbd> | Open Insights |
+| <kbd>Backspace</kbd> | Go back |
+| <kbd>Shift+P</kbd> | Switch project |
+| <kbd>Esc</kbd> | Close the open dialog, or go back |
+
+Go back moves one level up:
+
+- From session detail, you go to the sessions list when a project is in scope. With no project in scope, you go to Overview.
+- From the sessions list, you go to Overview. This clears the project scope.
+- From Insights, you go to Overview. The project scope stays.
+- On Overview, go back does nothing.
+
+See [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/) for how the scope works.
+
+### Project picker
+
+<kbd>Shift+P</kbd> opens **Switch project**, a list of the projects with usage in the current date range, sorted by cost. In the picker:
+
+| Key | Action |
+| --- | --- |
+| Type | Filter the list |
+| <kbd>↓</kbd> or <kbd>Ctrl+N</kbd> | Move down |
+| <kbd>↑</kbd> or <kbd>Ctrl+P</kbd> | Move up |
+| <kbd>Enter</kbd> | Open the sessions list of that project |
+| <kbd>Esc</kbd> | Close the picker |
+
+## Table
+
+| Key | Action |
+| --- | --- |
+| <kbd>↓</kbd> or <kbd>J</kbd> | Select the next row |
+| <kbd>↑</kbd> or <kbd>K</kbd> | Select the previous row |
+| <kbd>Enter</kbd> or <kbd>Space</kbd> | Open the selected row |
+
+These keys move through the rows you can click in the table of the current view. Opening a row does the same as a click on it. On Overview a row opens the sessions of that project. In the sessions list a row opens the session detail. See [Trace a project to a message](/claude-code-cost/guides/sessions/).
+
+## Timeline range
+
+Session detail shows a range brush when a session has more than 25 messages. Click the brush track, or move focus to it with <kbd>Tab</kbd>, then use these keys:
+
+| Key | Action |
+| --- | --- |
+| <kbd>←</kbd> / <kbd>→</kbd> | Move the window one step. A step is a tenth of the window size, at least 1 message. |
+| <kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> | Move the window by its full size |
+| <kbd>Home</kbd> | Jump to the first messages |
+| <kbd>End</kbd> | Jump to the last messages |
+
+The mouse wheel over the track also moves the window one step at a time.
+
+## View
+
+| Key | Action |
+| --- | --- |
+| <kbd>R</kbd> | Refresh data. This clears the server and browser caches and loads the current view again. |
+| <kbd>t</kbd> (no Shift) | Switch between light and dark mode |
+| <kbd>Ctrl+Shift+S</kbd> | Open Plan usage |
+| <kbd>?</kbd> | Show or hide the help dialog |
+
+For Plan usage, see [Watch 5-hour blocks and burn rate](/claude-code-cost/guides/insights/).
+
+## Hub
+
+The help dialog shows this group only when Claude Code Cost runs inside [Claude Code Hub](/claude-code-cost/reference/claude-code-hub/).
+
+| Key | Action |
+| --- | --- |
+| <kbd>Ctrl+Alt+←</kbd> / <kbd>Ctrl+Alt+→</kbd> | Go to the previous or next hub app |
+| <kbd>Alt+1</kbd> … <kbd>Alt+9</kbd> | Go to a hub app by its number |
+| <kbd>Ctrl+Alt+P</kbd> | Open the hub project picker |
+
+Inside the hub, Claude Code Cost sends these keys to the hub:
+
+- <kbd>Ctrl+Alt+←</kbd> and <kbd>Ctrl+Alt+→</kbd>
+- <kbd>Ctrl+Alt</kbd> with any letter, when <kbd>Shift</kbd> and <kbd>Meta</kbd> are not held
+- <kbd>Alt+1</kbd> to <kbd>Alt+9</kbd>, with no other modifier
+
+The hub decides what each key does. It also binds <kbd>Ctrl+Alt+W</kbd> to open the config dir picker. The help dialog in Claude Code Cost does not list that key. The hub ignores letters it has no binding for.
+
+## When keys do nothing
+
+Claude Code Cost ignores its shortcuts in these cases:
+
+- **Focus is in a text field.** Keys typed in an input box, text area or drop-down go to that field.
+- **A dialog is open.** Only <kbd>Esc</kbd> works, and it closes the dialog. In the help dialog, <kbd>?</kbd> also closes it.
+- **The date range picker is open.** Only <kbd>Esc</kbd> works, and it closes the picker without a change.
+- **<kbd>Ctrl</kbd>, <kbd>Alt</kbd> or <kbd>Meta</kbd> is held.** The app ignores the key. <kbd>Ctrl+Shift+S</kbd> is the only exception.
+
+Inside the hub, the keys in the Hub group go to the hub in all of these cases.
+
+<Lightbox />

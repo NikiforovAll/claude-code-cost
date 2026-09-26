@@ -1,0 +1,500 @@
+---
+import SiteLayout from '../kit/SiteLayout.astro';
+import Shot from '../kit/Shot.astro';
+import Keys from '../kit/Keys.astro';
+import ModeToggle from '../kit/ModeToggle.astro';
+import ThemeDial from '../kit/ThemeDial.astro';
+import Lightbox from '../kit/Lightbox.astro';
+import FamilyFooter from '../kit/FamilyFooter.astro';
+import { family, url } from '../kit/family';
+
+const GITHUB = 'https://github.com/NikiforovAll/claude-code-cost';
+const NPM = 'https://www.npmjs.com/package/claude-code-cost';
+const INSTALL = 'npx claude-code-cost --open';
+
+const trace = [
+  {
+    title: 'Open a project to see its sessions',
+    body: 'Each session shows its cost, tokens, messages, run time, and model, and how many times it compacted. Sort by any column.',
+    shot: 'h2d-hub-cost-sessions',
+    alt: 'The api-gateway project: daily cost, cost by model, and a table of its sessions',
+  },
+  {
+    title: 'Open a session to see each message',
+    body: 'A cumulative cost curve, the tokens of each message, and a table with the model, the tools it called, and the running total. A workflow gets its own row with its agents and its share of the cost.',
+    shot: 'cost-detail',
+    alt: 'Session detail with the cumulative cost curve, token breakdown per message, and the message table',
+  },
+  {
+    title: 'Pick the range',
+    body: 'Today, the last 24 hours, or up to a year. For anything else, pick two dates on the calendar.',
+    shot: 'h2g-hub-cost-range',
+    alt: 'The range picker with shortcuts from today to one year and a two-month calendar',
+  },
+];
+
+const plan = [
+  {
+    title: 'Know where the current 5-hour block stands',
+    body: 'Insights shows the active billing block with its time left, the burn rate, the monthly run-rate, and what the cache saved you. Below the charts, every past block has its messages, tokens, and cost.',
+    shot: 'cost-insights',
+    alt: 'Insights: active 5-hour block, burn rate, run-rate, cache savings, charts, and the billing block table',
+  },
+  {
+    title: 'Keep your hands on the keyboard',
+    body: '[1] and [2] switch between Overview and Insights. Arrow keys move through table rows, [Enter] opens one, and [Backspace] goes back. Press [?] for the full list.',
+    shot: 'h2b-hub-cost-shortcuts',
+    alt: 'Help dialog with the pricing note and keyboard shortcuts grouped by navigate, table, timeline range, view, and hub',
+  },
+];
+
+const setup = [
+  {
+    title: 'Start the dashboard',
+    cmd: INSTALL,
+    body: 'It reads the session logs in ~/.claude/projects/ and never writes to them.',
+  },
+  {
+    title: 'Install it as an app',
+    body: 'Optional. In Chrome or Edge, click the install button in the address bar. The dashboard then opens in its own window.',
+  },
+];
+---
+
+<SiteLayout
+  title="Claude Code Cost: what Claude Code costs you, down to the message"
+  description="See what Claude Code costs you per day, project, session, and message."
+  image="shots/themes/ember-h2-hub-cost-light.webp"
+>
+  <div class="page">
+    <header class="nav">
+      <a class="mark" href={url()}>Claude Code Cost</a>
+      <nav aria-label="Site">
+        <a href={url('getting-started/')}>Docs</a>
+        <a href={GITHUB}>GitHub</a>
+        <details class="family">
+          <summary>Apps</summary>
+          <ul>
+            {family.map((s) => <li><a href={s.href} aria-current={s.id === 'cost' ? 'page' : undefined}>{s.name}</a></li>)}
+          </ul>
+        </details>
+        <ModeToggle />
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1>What Claude Code costs you, down to the message.</h1>
+        <p class="lede">
+          The dashboard reads the session logs Claude Code already writes and prices every message. Start with the day,
+          open a project, then a session, then the message that cost the most.
+        </p>
+        <div class="actions">
+          <div class="cmd">
+            <code><span aria-hidden="true">$ </span>{INSTALL}</code>
+            <button type="button" class="copy" data-copy={INSTALL}>Copy</button>
+          </div>
+          <a class="button" href={url('getting-started/')}>Read the docs</a>
+        </div>
+
+        <figure class="hero-shot">
+          <Shot
+            themed="h2-hub-cost"
+            alt="Claude Code Cost overview: cost today and for 30 days, daily cost chart, cost by model, and the projects table"
+            eager
+          />
+          <figcaption>
+            <ThemeDial />
+            <p>The 17 themes the app ships with, in light and dark. Pick one and the page follows.</p>
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="half" aria-labelledby="trace">
+        <div class="half-head">
+          <h2 id="trace">Trace</h2>
+          <p>
+            Click a project, then a session. <kbd>Backspace</kbd> goes back one level. No hooks and no config: the logs in
+            <code>~/.claude/projects/</code> are enough.
+          </p>
+        </div>
+        <div class="items">
+          {
+            trace.map((it) => (
+              <article class="item">
+                <div class="item-text">
+                  <h3>{it.title}</h3>
+                  <p><Keys text={it.body} /></p>
+                </div>
+                <Shot themed={it.shot} alt={it.alt} />
+              </article>
+            ))
+          }
+        </div>
+      </section>
+
+      <section class="half" aria-labelledby="plan">
+        <div class="half-head">
+          <h2 id="plan">Plan</h2>
+          <p>
+            Prices come from the LiteLLM price list, with the 200K-token tier, cache reads and writes, and fast mode. If
+            the list cannot load, a copy that ships with the app fills in.
+          </p>
+          <p class="aside">
+            Inside Claude Code Hub, the project you pick with <kbd>Ctrl+Alt+P</kbd> filters every view.
+          </p>
+        </div>
+        <div class="items">
+          {
+            plan.map((it) => (
+              <article class="item">
+                <div class="item-text">
+                  <h3>{it.title}</h3>
+                  <p><Keys text={it.body} /></p>
+                </div>
+                <Shot themed={it.shot} alt={it.alt} />
+              </article>
+            ))
+          }
+        </div>
+      </section>
+
+      <section class="setup" aria-labelledby="setup">
+        <h2 id="setup">Set up in two steps</h2>
+        <ol>
+          {
+            setup.map((s) => (
+              <li>
+                <h3>{s.title}</h3>
+                {s.cmd && <code class="step-cmd">{s.cmd}</code>}
+                {s.body && <p><Keys text={s.body} /></p>}
+              </li>
+            ))
+          }
+        </ol>
+      </section>
+    </main>
+
+    <FamilyFooter
+      current="cost"
+      links={[
+        { label: 'MIT license', href: `${GITHUB}/blob/main/LICENSE` },
+        { label: 'npm', href: NPM },
+        { label: 'GitHub', href: GITHUB },
+      ]}
+    />
+  </div>
+  <Lightbox />
+</SiteLayout>
+
+<script>
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy!);
+        btn.textContent = 'Copied';
+      } catch {
+        btn.textContent = 'Press Ctrl+C';
+      }
+      setTimeout(() => (btn.textContent = 'Copy'), 1600);
+    });
+  }
+</script>
+
+<style>
+  .page {
+    width: min(100% - 2rem, 78rem);
+    margin-inline: auto;
+  }
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 1.25rem;
+  }
+  .mark {
+    font: 600 1.25rem/1 var(--font-display);
+    color: var(--c-ink1);
+    text-decoration: none;
+  }
+  .nav nav {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font: 500 0.875rem var(--font-mono);
+  }
+  .nav nav a,
+  .family summary {
+    color: var(--c-ink2);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .nav nav a:hover,
+  .family summary:hover {
+    color: var(--c-ink1);
+  }
+  .family {
+    position: relative;
+  }
+  .family summary {
+    list-style: none;
+  }
+  .family summary::-webkit-details-marker {
+    display: none;
+  }
+  .family summary::after {
+    content: ' ▾';
+  }
+  .family ul {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    z-index: 10;
+    margin: 0;
+    padding: 0.375rem;
+    list-style: none;
+    min-width: 11rem;
+    background: var(--c-elevated);
+    border: 1px solid var(--c-border);
+    border-radius: 0.5rem;
+  }
+  .family li a {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+  }
+  .family li a:hover {
+    background: var(--c-hover);
+  }
+  .family li a[aria-current='page'] {
+    color: var(--c-accent-ink);
+  }
+
+  .hero {
+    padding-block: clamp(2.5rem, 7vw, 6rem) 0;
+  }
+  h1 {
+    margin: 0;
+    font: 600 clamp(2.5rem, 6.4vw, 5.75rem) / 0.98 var(--font-display);
+    letter-spacing: -0.025em;
+    max-width: 22ch;
+  }
+  .lede {
+    margin: 1.75rem 0 0;
+    max-width: 38rem;
+    font-size: 1.1875rem;
+    color: var(--c-ink2);
+  }
+  .actions {
+    margin-top: 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.375rem 0.375rem 1rem;
+    background: var(--c-elevated);
+    border: 1px solid var(--c-border);
+    border-radius: 0.5rem;
+    max-width: 100%;
+  }
+  .cmd code {
+    font-size: 0.9375rem;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .cmd code span {
+    color: var(--c-muted);
+  }
+  .copy,
+  .button {
+    font: 500 0.875rem/1 var(--font-mono);
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .copy {
+    color: var(--c-ink2);
+    background: transparent;
+    border: 1px solid transparent;
+    min-width: 5.5rem;
+  }
+  .copy:hover {
+    background: var(--c-hover);
+  }
+  .button {
+    display: inline-flex;
+    align-items: center;
+    color: var(--c-field);
+    background: var(--c-ink1);
+    border: 1px solid var(--c-ink1);
+  }
+  .button:hover {
+    background: var(--c-accent-ink);
+    border-color: var(--c-accent-ink);
+  }
+  .copy:focus-visible,
+  .button:focus-visible,
+  .nav a:focus-visible,
+  .family summary:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+  }
+
+  .hero-shot {
+    margin: clamp(2.5rem, 5vw, 4rem) 0 0;
+  }
+  .hero-shot figcaption {
+    margin-top: 1.25rem;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .hero-shot figcaption p {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--c-ink3);
+  }
+
+  .half {
+    margin-top: clamp(5rem, 10vw, 9rem);
+    display: grid;
+    grid-template-columns: minmax(14rem, 18rem) 1fr;
+    gap: 2rem clamp(2rem, 5vw, 4.5rem);
+    align-items: start;
+  }
+  .half-head {
+    position: sticky;
+    top: 2rem;
+  }
+  .half-head h2 {
+    margin: 0 0 1rem;
+    font: 600 clamp(3.5rem, 8vw, 6rem) / 0.9 var(--font-display);
+    letter-spacing: -0.03em;
+    color: var(--c-accent-ink);
+  }
+  .half-head p {
+    margin: 0 0 1rem;
+    color: var(--c-ink2);
+  }
+  .aside {
+    font-size: 0.9375rem;
+    color: var(--c-ink3);
+  }
+  .half-head code,
+  .groups-text code,
+  .item-text code {
+    font-size: 0.875em;
+    padding: 0.1em 0.35em;
+    margin: 0 0.15em;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 0.3em;
+    white-space: nowrap;
+  }
+  @media (max-width: 360px) {
+    .half-head code,
+    .groups-text code,
+    .item-text code {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      box-decoration-break: clone;
+    }
+  }
+  .items {
+    display: grid;
+    gap: clamp(3.5rem, 6vw, 5.5rem);
+  }
+  .item {
+    display: grid;
+    gap: 1.25rem;
+  }
+  .item-text {
+    max-width: 40rem;
+  }
+  .item h3,
+  .setup h3 {
+    margin: 0 0 0.5rem;
+    font: 600 1.625rem/1.2 var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  .item p {
+    margin: 0;
+    color: var(--c-ink2);
+  }
+  .groups {
+    margin-top: clamp(5rem, 10vw, 9rem);
+    display: grid;
+    grid-template-columns: minmax(14rem, 22rem) 1fr;
+    gap: 2rem clamp(2rem, 5vw, 4.5rem);
+    align-items: center;
+  }
+  h2 {
+    margin: 0 0 1rem;
+    font: 600 clamp(2rem, 4vw, 2.75rem) / 1.08 var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  .groups p {
+    margin: 0;
+    color: var(--c-ink2);
+  }
+
+  .setup {
+    margin-block: clamp(5rem, 10vw, 9rem) clamp(4rem, 8vw, 6rem);
+  }
+  .setup ol {
+    margin: 2rem 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1.5rem;
+  }
+  .setup li {
+    counter-increment: step;
+    padding-top: 1.25rem;
+    border-top: 2px solid var(--c-ink1);
+  }
+  .setup li::before {
+    content: counter(step);
+    display: block;
+    font: 600 1rem var(--font-mono);
+    color: var(--c-accent-ink);
+    margin-bottom: 0.5rem;
+  }
+  .step-cmd {
+    display: block;
+    margin: 0.75rem 0;
+    padding: 0.625rem 0.875rem;
+    background: var(--c-elevated);
+    border: 1px solid var(--c-border);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .setup li p {
+    margin: 0;
+    color: var(--c-ink2);
+    font-size: 0.9375rem;
+  }
+
+  @media (max-width: 52rem) {
+    .half,
+    .groups {
+      grid-template-columns: 1fr;
+    }
+    .half-head {
+      position: static;
+    }
+    .nav nav {
+      gap: 0.875rem;
+    }
+  }
+</style>

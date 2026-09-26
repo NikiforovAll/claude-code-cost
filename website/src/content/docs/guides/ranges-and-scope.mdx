@@ -1,0 +1,92 @@
+---
+title: Choose a date range and project scope
+description: Set the time window and the project that each view counts, and keep the numbers current.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+Two controls in the top bar decide what Claude Code Cost counts. The date range sets the time window. The project scope limits the numbers to one project. Both stay set when you reload the page.
+
+<Shot themed="h2g-hub-cost-range" alt="The date range picker open, with preset shortcuts on the left and a two-month calendar on the right" />
+
+## Pick a preset
+
+Click the date range button in the top bar. Its label shows the current range, for example `3 DAYS`. Click a preset on the left to apply it at once and close the picker.
+
+| Preset | Window |
+| --- | --- |
+| Today | From local midnight to now |
+| Last 24h | The last 24 hours, rolling |
+| 3 Days | The last 3 calendar days, today included. This is the default. |
+| 7 Days | The last 7 calendar days |
+| 30 Days | The last 30 calendar days |
+| 90 Days | The last 90 calendar days |
+| 1 Year | The last 365 calendar days |
+
+"N days" means N whole calendar days that end today. The app stores the preset itself, and the server computes the window again on each request. A 7 Days range you set last week still means the last 7 days today.
+
+## Pick a custom range
+
+1. Open the date range picker.
+2. Click a start day in the calendar. It fills the **From** box.
+3. Click an end day. It fills the **To** box. If you click a day before the start day, the app swaps the two.
+4. Check the day count at the bottom, for example `12 days`.
+5. Click **Apply**.
+
+To change one end only, click the **From** or **To** box, then click a day.
+
+The calendar shows two months, or one month when the window is narrower than 760 px. Weeks start on Monday. Days after today are disabled, and you cannot move past the current month. Both dates are whole local days, and the range includes both.
+
+**Cancel**, <kbd>Esc</kbd>, or a click outside the picker closes it and keeps the range you had. While the picker is open, other shortcuts do nothing.
+
+## What the range changes
+
+The app saves the range in your browser (`localStorage` key `cc-cost:range`) and uses it in every view. When you change it, a toast shows `Recalculating for <range>...` while the view loads again.
+
+- The [overview](/claude-code-cost/guides/overview/) and [insights](/claude-code-cost/guides/insights/) count only usage inside the range.
+- The [sessions list](/claude-code-cost/guides/sessions/) sums only the messages inside the range for each session.
+- Session detail totals always cover the whole session. When only part of the session falls in the range, a note under the totals shows the cost and message count for the range, and for today when that part is different.
+
+Charts use one bar per hour for Today, Last 24h, and a custom range of one day. All other ranges use one bar per day. Hours or days with no usage still get an empty slot, so gaps are visible.
+
+## Scope to one project
+
+A project scope limits the views to one project. You can set it in two ways:
+
+- Inside [Claude Code Hub](/claude-code-cost/reference/claude-code-hub/), pick a project with the hub's project picker (<kbd>Ctrl+Alt+P</kbd>). The hub sends the project to Claude Code Cost.
+- Add `?scope=` to the dashboard URL, followed by the project's folder name under `projects` in your Claude config dir.
+
+When you set a scope, the app opens that project's sessions. The scope shows in two places: a chip in the top bar, and a `<project> / all projects` link at the top of the view. Click the **x** on the chip, or click **all projects**, to clear the scope and go back to the overview.
+
+The app saves the scope in your browser (`localStorage` key `cc-cost:scope`). Some moves clear it:
+
+- Going back from the sessions list or session detail to the overview clears the scope.
+- Switching to Insights keeps the scope, and going back from Insights to the overview keeps it too.
+
+If the scoped project has no usage in the range, the overview says so and tells you to clear the scope.
+
+## Switch project
+
+Press <kbd>Shift+P</kbd> to open **Switch project**. The list shows every project that has usage in the current range, sorted by cost, with its cost next to it. The list ignores the current scope.
+
+1. Type to filter the list by project name.
+2. Move with <kbd>↑</kbd> and <kbd>↓</kbd>, or <kbd>Ctrl+P</kbd> and <kbd>Ctrl+N</kbd>.
+3. Press <kbd>Enter</kbd> to open that project's sessions.
+
+<kbd>Esc</kbd> closes the picker. Picking a project here opens its sessions list only. It does not set a scope. If no name matches, the list shows `No projects match`. If the list cannot load, it shows `Failed to load projects`.
+
+## Keep the numbers fresh
+
+The app keeps data in two caches:
+
+- The server keeps each computed result for 30 seconds, up to 50 results.
+- The browser keeps each response in memory for 5 minutes, up to 20 responses. It does not write them to disk.
+
+Every 30 seconds, and when the browser tab becomes visible again, the app checks the data on screen. If that data is older than 5 minutes and the app is visible, it loads the current view again. Inside Claude Code Hub, it does this only while Claude Code Cost is the active app, and it checks as soon as you switch to it.
+
+To reload now, click **Refresh** in the top bar or press <kbd>R</kbd>. This clears the server cache and the browser cache, loads the current view again, and shows `Data refreshed`. Refresh reads the session logs again. It does not fetch model prices again. The server gets new prices at most every 6 hours. See [How costs are computed](/claude-code-cost/how-costs-are-computed/).
+
+For all keys, see [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/).
+
+<Lightbox />

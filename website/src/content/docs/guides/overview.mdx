@@ -1,0 +1,69 @@
+---
+title: Read the overview
+description: See what each card, chart and table on the Overview tab shows, and open a project from it.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+The Overview tab is the first view you see. It shows the cost for the selected date range across all your projects. Press <kbd>1</kbd> to go to it from any view.
+
+<Shot themed="h2-hub-cost" alt="The Overview tab with the stat cards, the cost chart stacked by model, the Cost by Model chart, and the Projects table" />
+
+Every number on this page is an estimate from token counts and public model prices. It is not a bill. See [How costs are computed](/claude-code-cost/how-costs-are-computed/).
+
+## Cards
+
+The row of cards at the top sums the selected range.
+
+- **Today** shows what you spent since local midnight. The card is hidden when the range ends before today.
+- **The range card** shows the total for the whole range. Its label follows the range, for example `3 Days`, `Last 24h`, or a date span for a custom range. The card is hidden when the range is only today, because the Today card already shows that number.
+- **Sessions** counts the sessions that have at least one message in the range.
+- **Tokens** shows input plus output tokens. The line below it splits them into In and Out. Cache tokens are not in this number.
+- **Cache Efficiency** is the share of all input tokens that came from the cache: cache reads divided by input, cache writes and cache reads together. A meter shows the percentage. The line below shows the Read and Created (cache write) token counts. If the range has no cache tokens, the card shows `0.0%` and no meter.
+
+## Cost chart
+
+The left chart shows cost over time. Its title is **Hourly Cost** when the range is Today, Last 24h, or a custom range of one day. For all other ranges it is **Daily Cost**, with one bar per day.
+
+Each bar is stacked by model, so you can see which model spent the money in that hour or day. A legend below the chart names the models when there is more than one. Hours or days with no usage still get a bar slot, so gaps in your work show as gaps in the chart. Hover a segment to see the model and its cost.
+
+## Cost by model
+
+The right chart is a horizontal bar per model, largest first. Hover a bar to see its cost in dollars and its share of the total as a percentage. Synthetic entries such as `<synthetic>` are not real models, so this chart leaves them out.
+
+## Projects table
+
+The Projects table lists every project with usage in the range.
+
+| Column | Shows |
+| --- | --- |
+| Project | The project folder name, from the working directory in the session logs. |
+| Cost | The project's cost in the range. |
+| Sessions | The number of sessions with messages in the range. |
+| Last Active | Time since the last message, such as `5m ago`, `3h ago` or `2d ago`. After 30 days it shows a date. |
+| Model | The model that cost the most in the range, in short form. Shows `unknown` if the project has no real model. |
+
+The table starts sorted by Cost, highest first. To sort by another column, click its header. A new column starts in descending order. Click the same header again to flip the order. The Model column does not sort. The app saves the sort for each view in your browser, so it stays the same the next time you open the dashboard.
+
+To open a project, click its row. The app shows that project's sessions. You can also use the keyboard. Press <kbd>↓</kbd> or <kbd>J</kbd> to select the next row, <kbd>↑</kbd> or <kbd>K</kbd> to select the previous row, and <kbd>Enter</kbd> or <kbd>Space</kbd> to open it. See [Trace a project to a message](/claude-code-cost/guides/sessions/) for what comes next.
+
+## Change the range
+
+The date range button in the top bar sets the window for every card, chart and table on this tab. The default is 3 Days. A change recalculates all of it. See [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/).
+
+## Scope to one project
+
+With a project scope set, the Overview shows only that project. If the project has no sessions in the range, the tab shows `No usage for <project> in ...` and `Clear the project scope to see everything.` Clear the scope with the **x** on the scope chip in the top bar.
+
+## Number formats
+
+- Costs show two decimals, such as `$4.27`. Zero is `$0.00`, and an amount above zero but under one cent is `<$0.01`. From `$100` up, costs show whole dollars.
+- Token counts use `K` for thousands and `M` for millions, with one decimal, such as `12.4K` or `3.1M`.
+- Model names drop the `anthropic/` and `claude-` prefixes and the date suffix. For example, `claude-sonnet-4-20250514` shows as `sonnet-4`.
+
+## Loading and errors
+
+While data loads, the tab shows a skeleton of the cards, charts and table. On the first load it also shows a small pixel mascot with a word such as `Counting tokens…`. If the load fails, the tab shows `Failed to load data:` followed by the error, and an error message appears at the corner of the screen.
+
+<Lightbox />

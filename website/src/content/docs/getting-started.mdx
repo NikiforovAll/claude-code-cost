@@ -1,0 +1,87 @@
+---
+title: Getting started
+description: Start Claude Code Cost with one command and read the first screen.
+---
+
+import Shot from '../../kit/Shot.astro';
+import Lightbox from '../../kit/Lightbox.astro';
+
+Claude Code Cost is a local dashboard. It reads the session transcripts that Claude Code already writes and shows what your usage costs per day, project, session, and message.
+
+## Requirements
+
+- Node.js 20 or later.
+- A Claude config dir with at least one session. The default is `~/.claude`.
+
+You do not need hooks, plugins, or a config file.
+
+## Start the dashboard
+
+```bash
+npx claude-code-cost --open
+```
+
+This runs the `claude-code-cost` package from npm (MIT license). The server starts on `http://localhost:3543`, and `--open` opens that URL in your default browser.
+
+If port 3543 is in use, the server prints `Port 3543 in use, trying random port...` and listens on a random free port. The banner shows the real URL:
+
+```text
+Claude Code Cost Dashboard running at http://localhost:<port>
+```
+
+To set the port or the config dir, see [Configuration and CLI](/claude-code-cost/reference/configuration/).
+
+## What it reads and what it sends
+
+The server reads every `<config dir>/projects/*/*.jsonl` file. With the default config dir, it also reads `~/.config/claude/projects/*/*.jsonl`, which some Claude Code builds use. Each file is one session. It also reads the subagent transcripts in each session folder. It never writes to these files.
+
+Two server features make calls outside your machine:
+
+- **Price list.** At startup, the server downloads the LiteLLM model price list from GitHub. It downloads the list again at most every 6 hours. If the download fails, it uses a small built-in price table.
+- **Plan usage.** When you open the Plan usage dialog, the server runs your local `claude` CLI to ask for your plan limits. The CLI contacts Anthropic. This does not run a model turn, and it runs only when you open the dialog.
+
+The page itself also loads fonts from Google Fonts and the Chart.js library from jsDelivr. Your transcripts and cost data stay on your machine.
+
+## Install as an app
+
+You can install the dashboard as a desktop app. With the server running, open it in Chrome or Edge. Click **Install** in the top bar, or the install icon in the address bar. The **Install** button shows only when the browser offers to install the page.
+
+The installed app opens in its own window. Right-click its icon for the **Overview** and **Insights** shortcuts. The server must still run, because the app is a window onto the local URL. The service worker never caches `/api/` calls, so the numbers always come from the server.
+
+## First tour
+
+<Shot themed="h2-hub-cost" alt="The Overview tab with cost cards, a daily cost chart stacked by model, a Cost by Model chart, and the Projects table" eager />
+
+The top bar has these items, from left to right:
+
+- The **Cost Dashboard** logo.
+- The project scope chip. It shows only when the dashboard is scoped to one project. Click its **x** to clear the scope.
+- The date range button. The default range is **3 DAYS**.
+- **Refresh**. It reloads the data from the transcripts.
+- The color theme picker, with 17 themes.
+- The light/dark toggle.
+- **Install**, when the browser offers it.
+- **Help**, which lists the keyboard shortcuts. Press <kbd>?</kbd> to open it.
+- A link to the GitHub repository.
+
+The dashboard has two tabs. **Overview** shows totals, cost over time, cost by model, and a table of projects. **Insights** shows 5-hour blocks, burn rate, cache savings, and tool use. Press <kbd>1</kbd> for Overview and <kbd>2</kbd> for Insights.
+
+Click a project row to open its sessions. Click a session to open its detail, with one row per message. In these views a breadcrumb replaces the tabs. Click a breadcrumb item, or press <kbd>Backspace</kbd>, to go back.
+
+:::note[Estimate, not a bill]
+Every number is an estimate. Claude Code Cost multiplies the token counts in your transcripts by public LiteLLM list prices. A model that is not in the price list counts as $0. The summarizer call behind a compaction is not logged, so its cost is not in the totals. The session detail shows it as a separate estimate. The totals can differ from your Anthropic invoice or plan usage. See [How costs are computed](/claude-code-cost/how-costs-are-computed/).
+:::
+
+## Next steps
+
+- [How costs are computed](/claude-code-cost/how-costs-are-computed/)
+- [Read the overview](/claude-code-cost/guides/overview/)
+- [Trace a project to a message](/claude-code-cost/guides/sessions/)
+- [Watch 5-hour blocks and burn rate](/claude-code-cost/guides/insights/)
+- [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/)
+- [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/)
+- [Configuration and CLI](/claude-code-cost/reference/configuration/)
+- [Run inside Claude Code Hub](/claude-code-cost/reference/claude-code-hub/)
+- [Troubleshooting](/claude-code-cost/reference/troubleshooting/)
+
+<Lightbox />

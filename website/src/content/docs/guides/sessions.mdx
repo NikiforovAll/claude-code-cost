@@ -1,0 +1,153 @@
+---
+title: Trace a project to a message
+description: Open a project's sessions, then one session, and read the cost of each message in it.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+Claude Code Cost goes down in three steps. The overview lists projects, a project lists its sessions, and a session lists its messages. Click a row in the Projects table on the [overview](/claude-code-cost/guides/overview/) to open that project's sessions. Click a session to open its detail.
+
+The sessions list and the session detail count different things. The list counts only messages inside the selected date range. The detail counts the whole session. Read [All-time totals and the range](#all-time-totals-and-the-range) before you compare the two.
+
+## Sessions list
+
+<Shot themed="h2d-hub-cost-sessions" alt="A project's sessions view with the breadcrumb, the cost chart by model, the Cost by Model chart, the Total Cost box, and the sessions table" />
+
+The top of the view has a breadcrumb, `Overview / <project>`. Click **Overview** to go back.
+
+Under the breadcrumb are three boxes:
+
+- A cost chart stacked by model. The title is **Hourly Cost** for Today, Last 24h, or a one-day custom range. For other ranges it is **Daily Cost**.
+- **Cost by Model**, the cost of each model in this project for the range.
+- **Total Cost**, the sum of the sessions in the table, with the number of sessions under it.
+
+### Sessions table
+
+| Column | What it shows |
+| --- | --- |
+| Session | The custom title of the session. If it has none, the first prompt. If it has no prompt, the session id. |
+| Cost | Cost of the messages in the range. |
+| Tokens | Input, output, cache write, and cache read tokens in the range. |
+| Messages | Messages in the range. A tag such as `2× compact` shows how many compactions happened in the range. |
+| Duration | Time from the first to the last message of the whole session. |
+| Model | The model used for the most messages in the range. |
+| Last Active | Time since the last message. |
+
+The table starts sorted by **Last Active**, newest first. Click a column header to sort by it. Click it again to flip the order. The **Model** column does not sort.
+
+A session appears only if it has at least one message in the range. If no session does, the view shows `No sessions found for this project`. Pick a longer range to see older sessions. See [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/).
+
+## Session detail
+
+<Shot themed="cost-detail" alt="A session detail view with the stat header, the Cumulative Cost and Token Breakdown per Message charts, the range brush, and the messages table" />
+
+The breadcrumb is `Overview / <project> / <session>`. Click the project name to go back to its sessions. Under the breadcrumb, the first prompt of the session shows in italics.
+
+The header has these stats:
+
+- **Total Cost**, marked `all time`
+- **Input**, **Output**, **Cache Created**, and **Cache Read** tokens
+- **Messages**, marked `all time`
+- **Models**, every model the session used
+- **Compactions**, with their estimated cost. This stat shows only when the session has compactions.
+
+The costs of subagents and Workflow runs started from this session are in these totals. Each agent adds one row to the messages table.
+
+### All-time totals and the range
+
+The detail header always covers the whole session. The sessions list covers only the range. So a session that started before the range shows a larger cost in the detail than in the list.
+
+When only part of the session is in the range, a note under the header shows both parts:
+
+```text
+Totals above are all-time · last 3 days $1.20 / 40 msg · today $0.30 / 12 msg
+```
+
+The first part is the range slice and the second part is today. A part shows only when it is a real subset of the session, with some messages but not all. The today part also does not show when it has the same messages as the range slice. If the whole session is in the range, the note does not show.
+
+### Compaction note
+
+If the session has compactions, a second note shows:
+
+- How many were auto and how many were manual.
+- How many tokens the compactions dropped.
+- The summarizer cost, marked `estimate, not in total`. The transcript does not log the summary call, so Claude Code Cost estimates it. The total does not include it.
+- The cache re-warm cost and tokens, marked `in total`. This is the cache write on the turn after the compaction. The total already includes it.
+
+See [How costs are computed](/claude-code-cost/how-costs-are-computed/) for the estimate.
+
+### Workflows
+
+If the session started Workflow runs, a **Workflows (N)** table shows one row per run:
+
+| Column | What it shows |
+| --- | --- |
+| Workflow | Name of the run. |
+| Agents | Number of agents in the run. |
+| Span | Minutes from the first to the last message of the run. |
+| Input | Input, cache write, and cache read tokens together. |
+| Output | Output tokens. |
+| Cost | Cost of the run. |
+| Share | Percent of the session cost. |
+
+### Charts
+
+- **Cumulative Cost** is a line of the running total, by message number.
+- **Token Breakdown per Message** stacks Input, Output, Cache Create, and Cache Read for each message.
+
+Subagent messages look different so you can tell them from main-loop turns. In the bar chart their bars are faded. In the line chart their points are hollow, if the charts show 50 messages or fewer. Above 50 messages the line has no points. A dashed line labelled `compact` marks each compaction on both charts.
+
+### Range brush
+
+A session with more than 25 messages gets a range brush between the charts and the messages table. The brush picks which messages the charts and the table show. It starts on the last 25 messages.
+
+- Click a preset to set the window size: `25`, `50`, `100`, `200`, or `All`. Only presets smaller than the session show.
+- Drag the window to move it. Drag an edge to resize it. The window is never smaller than 10 messages.
+- Click the track to center the window on that spot.
+- Scroll the mouse wheel over the track to pan.
+- With the track focused, press <kbd>←</kbd> or <kbd>→</kbd> to pan one step (a tenth of the window), <kbd>Shift+←</kbd> or <kbd>Shift+→</kbd> to pan a full window, and <kbd>Home</kbd> or <kbd>End</kbd> to go to the start or end.
+
+The track has markers for cache bursts, compactions, and Workflow spans. The label above the track counts each kind. Click a marker to center the window on it.
+
+A cache burst is a main-loop turn that wrote much more cache than usual for this session. Its cache write is at least 20,000 tokens and at least 4 times the session median cache write. The brush looks for bursts only when the session has 5 or more main-loop turns that wrote cache. The turn right after a compaction gets a compaction marker instead.
+
+If the window is at the end of the session, it stays there when new messages arrive. If you moved it back, it stays where you put it.
+
+### Messages table
+
+| Column | What it shows |
+| --- | --- |
+| # | Message number in the session. |
+| Time | Local time of the message. |
+| Model | The model, with a tag for each tool the turn called. Subagent rows get a tag with the agent type, or `workflow` for a Workflow agent. |
+| Input | Input tokens. |
+| Output | Output tokens. |
+| Cache Cr. | Cache write tokens. |
+| Cache Rd. | Cache read tokens. |
+| Cost | Cost of the message. |
+| Cumulative | Running total up to this message. |
+
+The newest message is at the top. The title is `Messages (N)` when the table shows the whole session, or `Messages (n of N)` when the brush shows part of it. A compaction adds a row under its message, with the trigger, the token drop, the time it took, and the estimated cost marked `est.`.
+
+## Deep links
+
+The URL keeps your place, so you can bookmark a session or reload the page:
+
+- `?view=insights` opens Insights.
+- `?project=<encoded dir>` opens that project's sessions.
+- `?session=<id>` opens that session's detail.
+
+If the session is not found in the current Claude config dir, from a link or from the last place you were, Claude Code Cost shows the toast `Not in this config dir — showing overview` and opens the overview.
+
+## Go back
+
+Press <kbd>Backspace</kbd> or <kbd>Esc</kbd>, or click a part of the breadcrumb.
+
+- From a session detail, back goes to the project's sessions. If the app does not know the project, for example after a `?session=` link with no `?project=`, back goes to the overview.
+- From the sessions list, back goes to the overview.
+- Each time back goes to the overview, from the sessions list or from a detail with no project, it clears the project scope. Only back from Insights keeps the scope.
+
+Use <kbd>↓</kbd>/<kbd>J</kbd> and <kbd>↑</kbd>/<kbd>K</kbd> to move through table rows, and <kbd>Enter</kbd> or <kbd>Space</kbd> to open one. See [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/).
+
+<Lightbox />

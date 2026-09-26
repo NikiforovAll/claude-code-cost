@@ -1,0 +1,91 @@
+---
+title: Watch 5-hour blocks and burn rate
+description: Read the Insights tab, see how 5-hour blocks work, and open the Plan usage dialog.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+The Insights tab shows how fast you spend and where the tokens go. Press <kbd>2</kbd> to open it, or click the **Insights** tab. It uses the same date range and project scope as the other views. See [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/).
+
+<Shot themed="cost-insights" alt="The Insights tab with the five stat cards, the Token Composition and Top Tools charts, the activity heatmap and the 5-Hour Billing Blocks table" />
+
+All dollar values on this tab are estimates from token counts and public model prices. See [How costs are computed](/claude-code-cost/how-costs-are-computed/).
+
+## Cards
+
+| Card | What it shows |
+| --- | --- |
+| Active 5h Block | Cost of the live 5-hour block, a used % meter when Claude Code reports one, the block hours, and the time left. Without live data it shows "no live window data". Click the card to open [Plan usage](#plan-usage). |
+| Burn Rate | Dollars per hour in the active block, tokens per minute, and the projected cost at block end. Without an active block it shows "no active block". |
+| Monthly Run-Rate | The daily average in the range times 30. The subline shows the daily average and "over N days". |
+| Cache Savings | Cache read tokens times the difference between the input price and the cache read price, per model. This is what those tokens would cost as fresh input, less what the cache reads cost. The meter shows the cache hit %: cache reads divided by cache reads plus cache writes. |
+| Subagent Share | The part of the cost that subagents spent, as a percent of main loop plus subagent cost. If workflows ran, the subline adds the workflow cost and the number of workflow runs. |
+
+### Burn pace colors
+
+The Burn Rate value gets one of three colors: ok, warn or hot.
+
+- If Claude Code reports a live used % for the block, the dashboard projects the % you will reach at block end. At 100% or more the value is hot. At 80% or more it is warn. A meter shows the projected %.
+- If there is no used %, the dashboard compares the projected cost with the past blocks in the range. Above the P90 block cost it is hot. Above the median it is warn. Otherwise it is ok. This needs at least 3 past blocks with a cost. With fewer, the value has no color.
+
+## 5-hour blocks
+
+Claude plan limits work in 5-hour windows. The dashboard groups messages into blocks the same way ccusage does:
+
+1. A block starts at the first message, rounded down to the hour.
+2. The block lasts 5 hours.
+3. The first message after the block ends starts a new block.
+
+That rule can be hours off from the real window on Claude's side. So the dashboard marks a block as active only when it has the real window end. It reads that from `<config dir>/.cck/context-status/*.json`, a snapshot of the Claude Code statusline that the Claude Code Kanban plugin writes. The dashboard uses the newest file. If its `rate_limits.five_hour.resets_at` is in the future, the active block runs for the 5 hours before that time.
+
+Without that file, or with a reset time in the past, no block is active. The Active 5h Block card shows "no live window data" and the Burn Rate card shows "no active block". The dashboard also reads the file only when the date range includes today, so a past range never has an active block.
+
+The active block counts every message since its start, even when the block started before the range. For example, a block that opened last evening still shows its full cost in the Today range.
+
+### The 5-Hour Billing Blocks table
+
+The table lists the latest 24 blocks in the range, newest first.
+
+| Column | Content |
+| --- | --- |
+| Block | Start date and hour, and end hour |
+| Status | `ACTIVE` with the time left, or "ended X ago" from the last message |
+| Messages | Number of messages in the block |
+| Tokens | Total tokens: input, output, cache write and cache read added together |
+| Cost | Estimated cost |
+| Models | Models used in the block |
+
+## Charts
+
+- **Token Composition.** Input, Output, Cache Write and Cache Read tokens for the range. The axis is a log scale, because cache reads are often thousands of times larger than fresh input. The tooltip shows the token count (rounded to K or M) and the percent of all tokens.
+- **Top Tools.** The 8 tools with the most calls. Only main loop calls count, not subagent calls. MCP tool names show only their last segment. With no calls it shows "No tool calls in this range".
+- **Activity Heatmap.** Cost by hour for the 7 days that end at the end of the range. A short range still shows a full week. Columns start at 6 AM. The hours from midnight to 6 AM go at the end of the previous day's row, so a late night stays with its evening. With no cost it shows "No activity in this range".
+- **Weekly Cost.** Cost per week, with weeks that start on Monday. The chart shows only when 3 or more weeks in the range have activity.
+
+## Plan usage
+
+Press <kbd>Ctrl+Shift+S</kbd>, or click the Active 5h Block card, to open the Plan usage dialog. It shows:
+
+- Your plan name and when the numbers were read.
+- Each plan window with its percent used and the time until reset. The window you will run out of first has a **binding** badge. Windows count on their own, so one request adds to several and the percents do not add up.
+- Usage credits: the credit spend percent, or "Disabled" when credits are off.
+- **What's driving it.** Pick **24h** or **7d**. It lists Behaviors, Agents, Skills, Plugins and MCP servers, each as a share of estimated cost from local transcripts. Rows overlap, so they do not add up to 100%. Hover a behavior name to see its rule.
+
+The info buttons explain the percents. The **Refresh** button asks for new numbers.
+
+The plan percents come from Claude. The cost estimates in this dashboard do not feed them.
+
+### How Plan usage works
+
+The dashboard asks the local `claude` CLI for the numbers:
+
+- It runs `claude -p --input-format stream-json --output-format stream-json --verbose` with `CLAUDE_CONFIG_DIR` set to the same config dir, and sends a `get_usage` control request.
+- No model turn runs, and the call costs $0. It makes one HTTPS call to Claude.
+- The CLI still starts in full, so it runs that config dir's `SessionStart` hooks.
+- The server keeps the answer for 5 minutes. **Refresh** skips that cache. Claude itself updates plan usage at most every 5 minutes, so a faster refresh can return the same numbers.
+- The call times out after 60 seconds. On failure `/api/usage-limits` returns 503, and the dialog shows "Could not read plan usage".
+
+Plan usage is not available for API-key, Bedrock or Vertex sessions. To use a different `claude` binary, set `CLAUDE_BIN`. See [Configuration and CLI](/claude-code-cost/reference/configuration/).
+
+<Lightbox />

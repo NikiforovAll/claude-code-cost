@@ -1,0 +1,69 @@
+---
+title: Run inside Claude Code Hub
+description: What changes when Claude Code Cost runs as a tab in Claude Code Hub.
+---
+
+import Shot from '../../../kit/Shot.astro';
+import Lightbox from '../../../kit/Lightbox.astro';
+
+Claude Code Hub puts Claude Code Cost in a tab next to its other apps. The dashboard is the same. The hub adds a shared project scope, a shared theme, and keyboard shortcuts that work across tabs.
+
+<Shot themed="h2-hub-cost" alt="Claude Code Cost overview inside Claude Code Hub" />
+
+## How Claude Code Cost knows it is in the hub
+
+Two environment variables turn on hub mode:
+
+- `CLAUDE_HUB=1` turns on hub mode.
+- `HUB_URL` is the hub's address.
+
+The page asks the server for `GET /hub-config`, which returns `{enabled, url}` from these two values. When `enabled` is false, the page runs standalone and ignores all hub messages. When it is true, the page accepts messages only from the parent window at the hub's origin.
+
+## Project scope
+
+Press <kbd>Ctrl+Alt+P</kbd> in the hub to pick a project. The hub sends the project to Claude Code Cost, which sets the scope and opens that project's sessions list. The scope shows as a chip in the top bar.
+
+- The scope applies to the overview and insights. The project picker always lists all projects. Switching to Insights keeps it.
+- Going back from the sessions list to the overview drops the scope.
+- If the hub sends an empty project, Claude Code Cost keeps its current scope. To clear the scope, click the **x** on the chip or **all projects** in the breadcrumb. Claude Code Cost then opens the overview.
+
+For scope outside the hub, see [Choose a date range and project scope](/claude-code-cost/guides/ranges-and-scope/).
+
+## Theme sync
+
+Light/dark mode and the color theme sync in both directions. Change the theme in Claude Code Cost and the hub passes it to the other apps. Change it in another app and Claude Code Cost follows.
+
+## Auto-refresh only on the visible tab
+
+The hub hides inactive tabs, so the page cannot tell by itself whether you can see it. The hub tells it which app is active.
+
+- Auto-refresh runs only while Claude Code Cost is the visible tab.
+- When you switch to the tab, it checks the data at once. If the data is older than 5 minutes, it reloads the current view.
+- While the tab stays visible, it checks again every 30 seconds.
+
+## Forwarded keys
+
+Key presses inside an iframe do not reach the hub, so Claude Code Cost sends these keys to the hub:
+
+| Keys | Hub action |
+| --- | --- |
+| <kbd>Ctrl+Alt+←</kbd> / <kbd>Ctrl+Alt+→</kbd> | Previous or next hub app |
+| <kbd>Alt+1</kbd> … <kbd>Alt+9</kbd> | Go to hub app by number |
+| <kbd>Ctrl+Alt+P</kbd> | Project picker |
+| <kbd>Ctrl+Alt+W</kbd> | Config-dir picker |
+
+Claude Code Cost forwards every <kbd>Ctrl+Alt+letter</kbd>. The hub ignores letters that it has no binding for. The **Hub** group in the in-app help (<kbd>?</kbd>) shows only when the app runs inside the hub. For all keys, see [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/).
+
+## One instance per config dir
+
+The hub can switch between Claude config dirs. Each dir gets its own Claude Code Cost server, started with `CLAUDE_CONFIG_DIR` set to that dir. That server reads the transcripts in that dir. For the default `~/.claude`, it also reads `~/.config/claude/projects`. See [Configuration and CLI](/claude-code-cost/reference/configuration/).
+
+After a switch, the page may still point at a session from the old dir. That session does not exist in the new dir, so Claude Code Cost shows a "Not in this config dir" message and opens the overview.
+
+The active 5-hour block on the Insights tab needs the Claude Code Kanban statusline installed in that config dir. Without it, the block card shows "no live window data". See [Watch 5-hour blocks and burn rate](/claude-code-cost/guides/insights/).
+
+## Framing
+
+Framing follows `HUB_URL`. When `HUB_URL` is set, these pages can frame Claude Code Cost: pages on `localhost` and `127.0.0.1` on any port, the app's own origin, and the hub's origin. A remote site still cannot frame it. When `HUB_URL` is not set, no page can frame it.
+
+<Lightbox />
