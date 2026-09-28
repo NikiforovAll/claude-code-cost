@@ -12,7 +12,7 @@
   --text-muted: #7d808a;
   --accent: #e86f33;
   --accent-text: #f0a070;
-  --accent-dim: rgba(232, 111, 51, 0.22);
+  --accent-dim: rgba(232, 111, 51, 0.25);
   --accent-glow: rgba(232, 111, 51, 0.55);
   --chart-fill: rgba(232, 111, 51, 0.32);
   --success: #3ecf8e;
@@ -2185,17 +2185,17 @@ kbd {
 body.light {
   --bg-deep: #e8e6e3;
   --bg-surface: #efede9;
-  --bg-elevated: #f7f4f0;
+  --bg-elevated: #fbfaf9;
   --bg-hover: #d2d0cc;
   --border: #cfcbc4;
   --text-primary: #0a0a0a;
-  --text-secondary: #444444;
-  --text-tertiary: #666666;
-  --text-muted: #888888;
+  --text-secondary: #2c2c2c;
+  --text-tertiary: #565656;
+  --text-muted: #767676;
   --accent-text: #a0501c;
-  --accent-dim: rgba(232, 111, 51, 0.18);
+  --accent-dim: rgba(184, 90, 32, 0.18);
   --accent-glow: rgba(232, 111, 51, 0.5);
-  --chart-fill: rgba(232, 111, 51, 0.28);
+  --chart-fill: rgba(232, 111, 51, 0.32);
   --success: #1a8a5a;
   --success-dim: rgba(26, 138, 90, 0.15);
   --warning: #b07d0a;
