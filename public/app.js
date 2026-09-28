@@ -3365,23 +3365,35 @@ async function refreshIfStale() {
   // 'π'), so the key alone cannot identify the binding. The hub owns the keymap and normalizes;
   // these tests only decide whether a press is the hub's to handle.
   document.addEventListener('keydown', (e) => {
-    const fwd = () => {
-      e.preventDefault();
-      hubPost({ type: 'hub:keydown', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
-    };
-    if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      fwd();
-    }
-    // Own branch: the Alt+digit case below requires !ctrlKey. The hub owns the Ctrl+Alt+letter
-    // keymap and ignores unbound letters.
-    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && (/^[a-z]$/i.test(e.key) || /^Key[A-Z]$/.test(e.code))) {
-      fwd();
-    }
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && (/^[1-9]$/.test(e.key) || /^Digit[1-9]$/.test(e.code))) {
-      fwd();
-    }
+    if (!isHubKey(e)) return;
+    e.preventDefault();
+    hubPost({ type: 'hub:keydown', key: e.key, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
   });
 })();
+
+// The combos the hub binds, from its hub:keys message. Null until one arrives: a hub from before
+// hub:keys sends none, and the fallback filter below is what such a hub expects.
+let hubKeys = null;
+
+// Must name a press the way the hub's keysMessage() does, normalized as its bindingKey().
+function hubCombo(e) {
+  const lower = (e.key || '').toLowerCase();
+  const m = /^(?:Key|Digit)([A-Z1-9])$/.exec(e.code || '');
+  const key = /^[a-z1-9]$/.test(lower) ? lower : m ? m[1].toLowerCase() : e.key;
+  const mods = [e.ctrlKey && 'ctrl', e.altKey && 'alt', e.shiftKey && 'shift', e.metaKey && 'meta'];
+  return [...mods, key].filter(Boolean).join('+');
+}
+
+function isHubKey(e) {
+  if (hubKeys) return hubKeys.has(hubCombo(e));
+  if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return true;
+  // Own branch: the Alt+digit case below requires !ctrlKey. The hub owns the Ctrl+Alt+letter
+  // keymap and ignores unbound letters.
+  if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && (/^[a-z]$/i.test(e.key) || /^Key[A-Z]$/.test(e.code))) {
+    return true;
+  }
+  return e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && (/^[1-9]$/.test(e.key) || /^Digit[1-9]$/.test(e.code));
+}
 
 // Hoisted out of initHubTheme so initHubProject can share it.
 const hubOrigin = () => (window.__HUB__?.url ? new URL(window.__HUB__.url).origin : null);
@@ -3427,6 +3439,14 @@ window.hubNavigate = function hubNavigate(app, url) {
   }).observe(document.body, {
     attributes: true,
     attributeFilter: ['class', 'data-color-theme'],
+  });
+})();
+
+(function initHubKeys() {
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.origin !== hubOrigin()) return;
+    if (e.data?.type !== 'hub:keys' || !Array.isArray(e.data.keys)) return;
+    hubKeys = new Set(e.data.keys.filter((k) => typeof k === 'string'));
   });
 })();
 
