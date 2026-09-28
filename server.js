@@ -2,11 +2,11 @@
 'use strict';
 
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const { createReadStream } = require('fs');
-const { createInterface } = require('readline');
-const os = require('os');
+const path = require('node:path');
+const fs = require('node:fs');
+const { createReadStream } = fs;
+const { createInterface } = require('node:readline');
+const os = require('node:os');
 const { createNetGuard } = require('./lib/net-guard');
 const { probeUsage, normalizeUsage } = require('./lib/usage-probe');
 
@@ -327,7 +327,8 @@ function rangeBucket(range) {
 // bucket total, unlike modelDistribution which drops them entirely.
 function addBucketModelCost(acc, key, model, cost) {
   const mk = isRealModel(model) ? model : 'other';
-  (acc[key] ||= {})[mk] = (acc[key][mk] || 0) + cost;
+  acc[key] ||= {};
+  acc[key][mk] = (acc[key][mk] || 0) + cost;
 }
 
 // Gap-filled so empty buckets stay visible in the chart. The bucket total is derived from

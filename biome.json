@@ -28,6 +28,14 @@
     }
   },
   "files": {
-    "includes": ["public/app.js", "public/style.css"]
-  }
+    "includes": ["public/app.js", "public/style.css", "server.js", "lib/**/*.js"]
+  },
+  "overrides": [
+    {
+      "includes": ["server.js", "lib/**/*.js"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

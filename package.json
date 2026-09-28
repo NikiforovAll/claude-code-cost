@@ -3,6 +3,7 @@
   "version": "0.24.0",
   "description": "Cost dashboard for Claude Code usage",
   "main": "server.js",
+  "type": "commonjs",
   "bin": {
     "claude-code-cost": "server.js"
   },
