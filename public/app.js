@@ -3375,7 +3375,7 @@ async function refreshIfStale() {
 // hub:keys sends none, and the fallback filter below is what such a hub expects.
 let hubKeys = null;
 
-// Must name a press the way the hub's keysMessage() does, normalized as its bindingKey().
+// A copy of the hub's comboOf(): its names must match the hub:keys list.
 function hubCombo(e) {
   const lower = (e.key || '').toLowerCase();
   const m = /^(?:Key|Digit)([A-Z1-9])$/.exec(e.code || '');
