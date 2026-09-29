@@ -2,7 +2,6 @@
 'use strict';
 
 const express = require('express');
-const hubSdk = require('./lib/vendor/claude-hub-sdk');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createReadStream } = fs;
@@ -1402,7 +1401,8 @@ app.use(net.frameGuard);
 app.use(net.originGuard);
 
 app.use(express.json());
-hubSdk.mount(app, { publicDir: path.join(__dirname, 'public') });
+// Under a hub, the hub hands over its SDK. Alone, public/vendor/claude-hub-sdk.js is a stub.
+if (process.env.HUB_SDK_SERVER) require(process.env.HUB_SDK_SERVER).mount(app);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
