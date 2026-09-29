@@ -1,0 +1,25 @@
+{
+  "manifest": 1,
+  "id": "cost",
+  "name": "Cost",
+  "icon": "dollar-sign",
+  "run": { "entry": "server.js", "defaultPort": 3543 },
+  "loading": {
+    "verbs": [
+      "Counting tokens…",
+      "Tallying the bill…",
+      "Stacking bars…",
+      "Crunching numbers…",
+      "Checking the cache hits…",
+      "Adding up the days…",
+      "Balancing the books…",
+      "Plotting the trend…",
+      "Weighing the models…"
+    ]
+  },
+  "actions": {
+    "handles": {
+      "session.cost": { "params": { "session": "string?" }, "url": "?view=detail&session={session}", "mode": "message" }
+    }
+  }
+}

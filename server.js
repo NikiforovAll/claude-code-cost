@@ -1401,6 +1401,10 @@ app.use(net.frameGuard);
 app.use(net.originGuard);
 
 app.use(express.json());
+// A hub run from its repo passes its SDK source, so an SDK edit needs no sync.
+const sdkFile = process.env.HUB_SDK_SRC || path.join(__dirname, 'public/vendor/claude-hub-sdk.js');
+app.get('/vendor/claude-hub-sdk.js', (_req, res) => res.sendFile(sdkFile));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/hub-config', (_req, res) => {

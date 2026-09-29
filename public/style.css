@@ -14,7 +14,6 @@
   --accent-text: #f0a070;
   --accent-dim: rgba(232, 111, 51, 0.25);
   --accent-glow: rgba(232, 111, 51, 0.55);
-  --chart-fill: rgba(232, 111, 51, 0.32);
   --success: #3ecf8e;
   --success-dim: rgba(62, 207, 142, 0.18);
   --warning: #f0b429;
@@ -31,6 +30,11 @@
   --chart-6: #fb7185;
   --compact: var(--chart-5);
   --workflow: var(--chart-2);
+}
+
+/* On body, not :root: the hub SDK writes theme vars on body, and var() resolves where the property is declared. */
+body {
+  --chart-fill: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 /* #endregion */
@@ -2195,7 +2199,6 @@ body.light {
   --accent-text: #a0501c;
   --accent-dim: rgba(184, 90, 32, 0.18);
   --accent-glow: rgba(232, 111, 51, 0.5);
-  --chart-fill: rgba(232, 111, 51, 0.32);
   --success: #1a8a5a;
   --success-dim: rgba(26, 138, 90, 0.15);
   --warning: #b07d0a;

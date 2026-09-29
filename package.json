@@ -45,6 +45,7 @@
   "license": "MIT",
   "files": [
     "server.js",
+    "hub-app.json",
     "lib/",
     "public/",
     "README.md",
