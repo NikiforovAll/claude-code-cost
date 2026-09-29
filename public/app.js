@@ -488,11 +488,28 @@ function purgeLegacyLocalCache() {
   keys.forEach((k) => localStorage.removeItem(k));
 }
 
+// A re-render can ask for a URL whose first request is still in flight (the hub's theme message
+// arrives during the first load and re-renders the view), so it joins that request.
+const pendingFetches = new Map();
+
 async function fetchJSON(url, skipCache) {
-  if (!skipCache) {
-    const cached = getCached(url);
-    if (cached) return cached;
+  if (skipCache) return requestJSON(url);
+  const cached = getCached(url);
+  if (cached) return cached;
+  const pending = pendingFetches.get(url);
+  if (pending) return pending;
+  const request = requestJSON(url);
+  pendingFetches.set(url, request);
+  try {
+    const data = await request;
+    cacheData(url, data);
+    return data;
+  } finally {
+    pendingFetches.delete(url);
   }
+}
+
+async function requestJSON(url) {
   const res = await fetch(url);
   if (!res.ok) {
     const err = new Error(`HTTP ${res.status}`);
@@ -501,7 +518,6 @@ async function fetchJSON(url, skipCache) {
   }
   const data = await res.json();
   dataFetchedAt = Date.now();
-  if (!skipCache) cacheData(url, data);
   return data;
 }
 
