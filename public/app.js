@@ -2118,15 +2118,17 @@ function loadTheme() {
   syncColorThemeSelect(colorTheme || 'ember');
 }
 
-function buildThemeMenu() {
+function buildThemeMenu(themes = COLOR_THEMES) {
   const menu = document.getElementById('themeMenu');
-  menu.innerHTML = COLOR_THEMES.map(
-    ([id, label]) =>
-      `<button type="button" class="theme-menu-item theme-swatch-${id}" data-theme-id="${id}"
+  menu.innerHTML = themes
+    .map(
+      ([id, label]) =>
+        `<button type="button" class="theme-menu-item theme-swatch-${id}" data-theme-id="${id}"
          onclick="event.stopPropagation(); setColorTheme('${id}'); toggleThemeMenu()">
-         <span class="theme-swatch theme-swatch-${id}"><i class="sw-bg"></i><i class="sw-accent"></i><i class="sw-ink"></i></span>${label}
+         <span class="theme-swatch theme-swatch-${id}"><i class="sw-bg"></i><i class="sw-accent"></i><i class="sw-ink"></i></span>${esc(label)}
        </button>`,
-  ).join('');
+    )
+    .join('');
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: called from topbar markup
@@ -3401,6 +3403,12 @@ hub.handle('session.cost', (p) => p.session && navigateToDetail(p.session));
     attributeFilter: ['class', 'data-color-theme'],
   });
 })();
+
+// Under the hub the picker lists the hub's themes, which include the user's own (protocol section 6, rule 5).
+hub.onThemes((themes) => {
+  buildThemeMenu(themes.map((t) => [t.id, t.label]));
+  syncColorThemeSelect(document.body.dataset.colorTheme);
+});
 
 // #endregion
 
