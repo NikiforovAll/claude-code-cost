@@ -17,7 +17,7 @@ Two environment variables turn on hub mode:
 - `CLAUDE_HUB=1` turns on hub mode.
 - `HUB_URL` is the hub's address.
 
-The page asks the server for `GET /hub-config`, which returns `{enabled, url}` from these two values. When `enabled` is false, the page runs standalone and ignores all hub messages. When it is true, the page accepts messages only from the parent window at the hub's origin.
+The hub also gives the app its SDK. In hub mode, the page asks the server for `GET /hub-config`, which returns `{enabled, url}` from these two values. The page then accepts messages only from the parent window at the hub's origin. Standalone, the app has no `/hub-config` route and uses a stub of the SDK that talks to no hub. See [Hub protocol v1](https://nikiforovall.blog/claude-code-hub/reference/protocol/).
 
 ## Project scope
 

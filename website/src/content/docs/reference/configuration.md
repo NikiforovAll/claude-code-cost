@@ -86,7 +86,7 @@ All routes in this table return JSON. The guards answer blocked requests with a 
 | `GET /api/usage-limits` | Plan usage from the probe. Add `?refresh=1` to skip the 5-minute cache. `503` if the probe fails. |
 | `GET /api/pricing` | The loaded prices, only for models whose name starts with `anthropic/` or `claude`. |
 | `POST /api/refresh` | Clears the server cache. Returns `{"ok": true}`. It does not fetch prices again. |
-| `GET /hub-config` | `{"enabled": <CLAUDE_HUB is set>, "url": <HUB_URL or null>}`. |
+| `GET /hub-config` | `{"enabled": true, "url": <HUB_URL>}`. Only when the hub runs the app. |
 
 The server keeps computed results for 30 seconds.
 
