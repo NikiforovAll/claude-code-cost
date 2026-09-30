@@ -3370,6 +3370,11 @@ async function refreshIfStale() {
 
 const hub = ClaudeHub.connect();
 
+document.getElementById('helpDocs')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  hub.openExternal(e.currentTarget.href);
+});
+
 hub.onActive((active) => {
   hubActive = active;
   // Becoming active is the main refresh trigger — the interval only covers staying active.

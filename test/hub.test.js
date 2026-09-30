@@ -22,7 +22,7 @@ async function loadHub() {
     top: parent,
     URL,
     console,
-    document: { readyState: 'complete', addEventListener: on, body },
+    document: { readyState: 'complete', addEventListener: on, getElementById: () => null, body },
     addEventListener: on,
     fetch: async () => ({ json: async () => ({ enabled: true, url: HUB }) }),
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
