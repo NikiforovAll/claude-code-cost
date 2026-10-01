@@ -1,6 +1,6 @@
 {
   "name": "claude-code-cost",
-  "version": "0.26.0",
+  "version": "1.0.0",
   "description": "Cost dashboard for Claude Code usage",
   "main": "server.js",
   "type": "commonjs",
