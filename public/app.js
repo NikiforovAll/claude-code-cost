@@ -2883,6 +2883,8 @@ const SHORTCUT_PAIRS = [
         { keys: ['Ctrl', 'Alt', '←/→'], combo: true, label: 'Previous / next hub app' },
         { keys: ['Alt', '1…9'], combo: true, label: 'Jump to hub app by number' },
         { keys: ['Ctrl', 'Alt', 'P'], combo: true, label: 'Project picker' },
+        { keys: ['Ctrl', 'Alt', 'W'], combo: true, label: 'Config dir picker' },
+        { keys: ['Ctrl', 'Alt', 'A'], combo: true, label: 'App launcher' },
       ],
     },
   ],
