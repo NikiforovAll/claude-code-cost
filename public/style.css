@@ -52,6 +52,13 @@ body {
   display: none !important;
 }
 
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 body {
   font-family: var(--mono);
   font-size: 13px;

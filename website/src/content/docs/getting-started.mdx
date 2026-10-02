@@ -40,7 +40,7 @@ Two server features make calls outside your machine:
 - **Price list.** At startup, the server downloads the LiteLLM model price list from GitHub. It downloads the list again at most every 6 hours. If the download fails, it uses a small built-in price table.
 - **Plan usage.** When you open the Plan usage dialog, the server runs your local `claude` CLI to ask for your plan limits. The CLI contacts Anthropic. This does not run a model turn, and it runs only when you open the dialog.
 
-The page itself also loads fonts from Google Fonts and the Chart.js library from jsDelivr. Your transcripts and cost data stay on your machine.
+The page itself also loads the Chart.js library from jsDelivr. The fonts ship with the package. Your transcripts and cost data stay on your machine.
 
 ## Install as an app
 
