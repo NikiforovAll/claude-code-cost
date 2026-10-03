@@ -3385,8 +3385,12 @@ hub.onActive((active) => {
   if (hubActive) refreshIfStale();
 });
 
-// The hub owns the abs->encoded transform, so cost never converts anything itself.
-hub.subscribe('project.changed', (p) => applyScope(p?.encoded ?? null, p?.name));
+// The hub owns the abs->encoded transform, so cost never converts anything itself. A repo's
+// linked worktrees have their own project dirs, so the scope is the comma-joined list of all.
+hub.subscribe('project.changed', (p) => {
+  const keys = p?.encoded ? [p.encoded, ...(p.worktrees ?? []).map((w) => w.encoded)] : [];
+  applyScope(keys.join(',') || null, p?.name);
+});
 
 hub.handle('session.cost', (p) => p.session && navigateToDetail(p.session));
 

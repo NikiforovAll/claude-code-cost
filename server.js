@@ -354,17 +354,19 @@ function buildModelDistribution(modelCosts) {
     .sort((a, b) => b.cost - a.cost);
 }
 
-// onlyKey narrows the scan to a single encoded project dir. The dir name *is* the key, so this
-// skips the per-project readdir and per-file statSync for everything else.
+// onlyKey narrows the scan to encoded project dirs, comma-separated: a repo and its linked
+// worktrees are separate dirs. The dir name *is* the key, so this skips the per-project readdir
+// and per-file statSync for everything else.
 function scanProjectDirs(cutoffDate, onlyKey) {
   const projects = new Map();
   const cutoffMs = cutoffDate ? cutoffDate.getTime() : 0;
+  const only = onlyKey ? new Set(onlyKey.split(',')) : null;
   for (const baseDir of getProjectsDirs()) {
     try {
       const entries = fs.readdirSync(baseDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (onlyKey && entry.name !== onlyKey) continue;
+        if (only && !only.has(entry.name)) continue;
         const projDir = path.join(baseDir, entry.name);
         const files = [];
         try {
@@ -984,12 +986,11 @@ async function getProjectSessionsData(encodedPath, range) {
 
   const pricing = await fetchPricing();
   const w = resolveWindow(range);
-  const projects = scanProjectDirs(w.cutoff);
-  const proj = projects.get(encodedPath);
+  const projects = scanProjectDirs(w.cutoff, encodedPath);
   const bucket = rangeBucket(range);
-  if (!proj) return { sessions: [], costSeries: { bucket, points: [] }, modelDistribution: [] };
+  if (!projects.size) return { sessions: [], costSeries: { bucket, points: [] }, modelDistribution: [] };
 
-  const sessions = await loadProjectData(proj.files, pricing);
+  const sessions = await loadProjectData([...projects.values()].flatMap((p) => p.files), pricing);
   const result = [];
   const bucketKey = BUCKETS[bucket].key;
   const bucketModelCosts = {};
@@ -1446,7 +1447,7 @@ function parseCustomRange(query) {
 // dropping the scope.
 function parseProject(raw) {
   if (raw === undefined || raw === '') return undefined;
-  if (typeof raw !== 'string' || !/^[A-Za-z0-9._-]+$/.test(raw)) return null;
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$/.test(raw)) return null;
   return raw;
 }
 
