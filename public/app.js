@@ -2880,17 +2880,29 @@ const SHORTCUT_PAIRS = [
       title: 'Hub',
       hub: true,
       rows: [
-        { keys: ['Ctrl', 'Alt', '←/→'], combo: true, label: 'Previous / next hub app' },
-        { keys: ['Alt', '1…9'], combo: true, label: 'Jump to hub app by number' },
-        { keys: ['Ctrl', 'Alt', 'P'], combo: true, label: 'Project picker' },
-        { keys: ['Ctrl', 'Alt', 'W'], combo: true, label: 'Config dir picker' },
-        { keys: ['Ctrl', 'Alt', 'A'], combo: true, label: 'App launcher' },
+        { keys: ['Ctrl', 'Alt', '←/→'], combo: true, hubMod: true, label: 'Previous / next hub app' },
+        { keys: ['Alt', '1…9'], combo: true, hubMod: true, label: 'Jump to hub app by number' },
+        { keys: ['Ctrl', 'Alt', 'P'], combo: true, hubMod: true, label: 'Project picker' },
+        { keys: ['Ctrl', 'Alt', 'W'], combo: true, hubMod: true, label: 'Config dir picker' },
+        { keys: ['Ctrl', 'Alt', 'A'], combo: true, hubMod: true, label: 'App launcher' },
       ],
     },
   ],
 ];
 
 const EMPTY_GROUP = { title: '', rows: [] };
+
+// macOS names Control, Option and Shift by their symbols.
+const IS_MAC = /^Mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+const MAC_KEYS = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧' };
+
+// The keys of a help row as they read on this system. The hub's modifier is Ctrl+Alt, and on
+// macOS Control+Option for the tab numbers too (Windows and Linux use bare Alt for those).
+function helpKeys(row, mac = IS_MAC) {
+  if (!mac) return row.keys;
+  if (row.hubMod) return ['⌃', '⌥', ...row.keys.filter((k) => k !== 'Ctrl' && k !== 'Alt')];
+  return row.keys.map((k) => MAC_KEYS[k] || k);
+}
 
 // Interleaves each pair's rows left-then-right so CSS grid auto-placement lands
 // them on shared row tracks (see .shortcuts in style.css).
@@ -2910,7 +2922,9 @@ function buildHelpShortcuts() {
         const row = group.rows[i];
         if (!row) continue;
         const sep = row.combo ? '<span class="sc-plus">+</span>' : '<span class="sc-or">/</span>';
-        const keys = row.keys.map((k) => `<kbd>${esc(k)}</kbd>`).join(sep);
+        const keys = helpKeys(row)
+          .map((k) => `<kbd>${esc(k)}</kbd>`)
+          .join(sep);
         const cls = side + (group.hub ? ' sc-hub' : '');
         cells.push(`<dt class="${esc(cls)}">${keys}</dt><dd class="${esc(cls)}">${esc(row.label)}</dd>`);
       }
