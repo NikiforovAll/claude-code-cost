@@ -2880,11 +2880,29 @@ const SHORTCUT_PAIRS = [
       title: 'Hub',
       hub: true,
       rows: [
-        { keys: ['Ctrl', 'Alt', '←/→'], combo: true, hubMod: true, label: 'Previous / next hub app' },
-        { keys: ['Alt', '1…9'], combo: true, hubMod: true, label: 'Jump to hub app by number' },
-        { keys: ['Ctrl', 'Alt', 'P'], combo: true, hubMod: true, label: 'Project picker' },
-        { keys: ['Ctrl', 'Alt', 'W'], combo: true, hubMod: true, label: 'Config dir picker' },
-        { keys: ['Ctrl', 'Alt', 'A'], combo: true, hubMod: true, label: 'App launcher' },
+        {
+          keys: ['Ctrl', 'Alt', '←/→'],
+          action: ['hub.prevApp', 'hub.nextApp'],
+          combo: true,
+          hubMod: true,
+          label: 'Previous / next hub app',
+        },
+        {
+          keys: ['Alt', '1…9'],
+          action: 'hub.appByNumber',
+          combo: true,
+          hubMod: true,
+          label: 'Jump to hub app by number',
+        },
+        { keys: ['Ctrl', 'Alt', 'P'], action: 'hub.projectPicker', combo: true, hubMod: true, label: 'Project picker' },
+        {
+          keys: ['Ctrl', 'Alt', 'W'],
+          action: 'hub.configDirPicker',
+          combo: true,
+          hubMod: true,
+          label: 'Config dir picker',
+        },
+        { keys: ['Ctrl', 'Alt', 'A'], action: 'hub.appLauncher', combo: true, hubMod: true, label: 'App launcher' },
       ],
     },
   ],
@@ -2897,8 +2915,11 @@ const IS_MAC = /^Mac/i.test(navigator.userAgentData?.platform || navigator.platf
 const MAC_KEYS = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧' };
 
 // The keys of a help row as they read on this system. The hub's modifier is Ctrl+Alt, and on
-// macOS Control+Option for the tab numbers too (Windows and Linux use bare Alt for those).
-function helpKeys(row, mac = IS_MAC) {
+// macOS Control+Option for the tab numbers too (Windows and Linux use bare Alt for those). A hub
+// row shows the keys the hub reports, which the user can change; row.keys until it answers.
+function helpKeys(row, mac = IS_MAC, keyLabel = hub.keyLabel) {
+  const live = row.action && keyLabel(row.action);
+  if (live) return live;
   if (!mac) return row.keys;
   if (row.hubMod) return ['⌃', '⌥', ...row.keys.filter((k) => k !== 'Ctrl' && k !== 'Alt')];
   return row.keys.map((k) => MAC_KEYS[k] || k);
@@ -2920,11 +2941,10 @@ function buildHelpShortcuts() {
     for (let i = 0; i < Math.max(left.rows.length, right.rows.length); i++) {
       for (const [group, side] of sides) {
         const row = group.rows[i];
-        if (!row) continue;
+        const parts = row && helpKeys(row);
+        if (!parts?.length) continue;
         const sep = row.combo ? '<span class="sc-plus">+</span>' : '<span class="sc-or">/</span>';
-        const keys = helpKeys(row)
-          .map((k) => `<kbd>${esc(k)}</kbd>`)
-          .join(sep);
+        const keys = parts.map((k) => `<kbd>${esc(k)}</kbd>`).join(sep);
         const cls = side + (group.hub ? ' sc-hub' : '');
         cells.push(`<dt class="${esc(cls)}">${keys}</dt><dd class="${esc(cls)}">${esc(row.label)}</dd>`);
       }
