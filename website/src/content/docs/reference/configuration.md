@@ -101,7 +101,7 @@ The GET data routes (`/api/overview`, `/api/insights`, `/api/projects`, `/api/pr
 
 With no range, `/api/overview` and `/api/insights` use 30 days. The other routes use all time. The dashboard itself starts on 3 Days, and it always sends the range you pick.
 
-`/api/overview`, `/api/insights`, and `/api/projects` also take `project=<encoded dir>`, the encoded project folder name. It must match `[A-Za-z0-9._-]+`, else the server returns `400` with `Invalid project`.
+`/api/overview`, `/api/insights`, and `/api/projects` also take `project=<encoded dir>`, the encoded project folder name. To sum several projects as one, for example a repo and its worktrees, join their folder names with commas. `/api/projects/:path/sessions` takes the same list as `:path`. Each name must match `[A-Za-z0-9._-]+`, else the server returns `400` with `Invalid project`.
 
 ```bash
 curl "http://localhost:3543/api/overview?range=7"
@@ -125,4 +125,4 @@ It keeps the current view, project, and session in `sessionStorage` under `cc-co
 
 ## Themes
 
-There are 17 color themes, each in light and dark: Ember (the default), Gruvbox, Catppuccin, Tokyo Night, Solarized, Dracula, Nord, Rosé Pine, Everforest, Kanagawa, One Dark, Night Owl, Monokai Pro, GitHub, Ayu, Vitesse, and Synthwave '84. Pick one from the palette button in the top bar. Press <kbd>t</kbd> (no Shift) to switch between light and dark. In the hub, the theme follows the hub in both directions.
+There are 17 color themes, each in light and dark: Ember (the default), Gruvbox, Catppuccin, Tokyo Night, Solarized, Dracula, Nord, Rosé Pine, Everforest, Kanagawa, One Dark, Night Owl, Monokai Pro, GitHub, Ayu, Vitesse, and Synthwave '84. Pick one from the palette button in the top bar. Press <kbd>t</kbd> (no Shift) to switch between light and dark. In the hub, the theme follows the hub in both directions, and the picker lists the hub's themes in place of these.

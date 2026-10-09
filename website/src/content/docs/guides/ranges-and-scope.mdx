@@ -54,8 +54,8 @@ Charts use one bar per hour for Today, Last 24h, and a custom range of one day. 
 
 A project scope limits the views to one project. You can set it in two ways:
 
-- Inside [Claude Code Hub](/claude-code-cost/reference/claude-code-hub/), pick a project with the hub's project picker (<kbd>Ctrl+Alt+P</kbd>). The hub sends the project to Claude Code Cost.
-- Add `?scope=` to the dashboard URL, followed by the project's folder name under `projects` in your Claude config dir.
+- Inside [Claude Code Hub](/claude-code-cost/reference/claude-code-hub/), pick a project with the hub's project picker (<kbd>Ctrl+Alt+P</kbd>). The hub sends the project to Claude Code Cost, with the repo's linked worktrees.
+- Add `?scope=` to the dashboard URL, followed by the project's folder name under `projects` in your Claude config dir. To scope to several folders as one, for example a repo and its worktrees, join the names with commas.
 
 When you set a scope, the app opens that project's sessions. The scope shows in two places: a chip in the top bar, and a `<project> / all projects` link at the top of the view. Click the **x** on the chip, or click **all projects**, to clear the scope and go back to the overview.
 

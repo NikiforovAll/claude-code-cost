@@ -23,6 +23,8 @@ The hub also gives the app its SDK. In hub mode, the page asks the server for `G
 
 Press <kbd>Ctrl+Alt+P</kbd> in the hub to pick a project. The hub sends the project to Claude Code Cost, which sets the scope and opens that project's sessions list. The scope shows as a chip in the top bar.
 
+Claude Code keeps each git worktree of a repo in its own project folder. When the project is a repo with linked worktrees, the hub sends them too, and the scope covers the repo and all its worktrees as one project.
+
 - The scope applies to the overview and insights. The project picker always lists all projects. Switching to Insights keeps it.
 - Going back from the sessions list to the overview drops the scope.
 - If the hub sends an empty project, Claude Code Cost keeps its current scope. To clear the scope, click the **x** on the chip or **all projects** in the breadcrumb. Claude Code Cost then opens the overview.
@@ -32,6 +34,12 @@ For scope outside the hub, see [Choose a date range and project scope](/claude-c
 ## Theme sync
 
 Light/dark mode and the color theme sync in both directions. Change the theme in Claude Code Cost and the hub passes it to the other apps. Change it in another app and Claude Code Cost follows.
+
+The color theme picker lists the hub's themes in place of the built-in 17, so your own hub themes show there too.
+
+## Open a session from another app
+
+Other hub apps can open a session in Claude Code Cost. In Claude Code Kanban, press <kbd>$</kbd> on a session, or click **Open in Cost** in its session info, to switch to the Cost tab with that session's detail open.
 
 ## Auto-refresh only on the visible tab
 
@@ -43,7 +51,7 @@ The hub hides inactive tabs, so the page cannot tell by itself whether you can s
 
 ## Forwarded keys
 
-Key presses inside an iframe do not reach the hub, so Claude Code Cost sends these keys to the hub:
+Key presses inside an iframe do not reach the hub, so Claude Code Cost sends the hub's keys to the hub. With the default keys, these are:
 
 | Keys | Hub action |
 | --- | --- |
@@ -53,7 +61,7 @@ Key presses inside an iframe do not reach the hub, so Claude Code Cost sends the
 | <kbd>Ctrl+Alt+W</kbd> | Config-dir picker |
 | <kbd>Ctrl+Alt+A</kbd> | App launcher |
 
-Claude Code Cost forwards every <kbd>Ctrl+Alt+letter</kbd>. The hub ignores letters that it has no binding for. The **Hub** group in the in-app help (<kbd>?</kbd>) shows only when the app runs inside the hub. For all keys, see [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/).
+When the app connects, the hub tells it which keys it uses, your own hub keys included. Claude Code Cost sends only those keys. Every other key stays in the app. The **Hub** group in the in-app help (<kbd>?</kbd>) shows only when the app runs inside the hub. For all keys, see [Keyboard shortcuts](/claude-code-cost/reference/keyboard-shortcuts/).
 
 ## One instance per config dir
 
