@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The shots live in Git LFS. The cache keeps each deploy to the files that changed, because
+      # LFS downloads count against the owner's monthly bandwidth.
+      - run: git lfs ls-files -l | cut -d' ' -f1 | sort > ../.lfs-assets-id
+
+      - uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+          restore-keys: lfs-
+
+      - run: git lfs pull
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24

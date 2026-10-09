@@ -1,0 +1,2 @@
+command -v git-lfs >/dev/null 2>&1 || { printf >&2 "\nThis repository uses Git LFS, but git-lfs is not on PATH. Install it from https://git-lfs.com\n\n"; exit 2; }
+git lfs post-commit "$@"
