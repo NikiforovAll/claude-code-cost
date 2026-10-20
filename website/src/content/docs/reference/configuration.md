@@ -54,7 +54,7 @@ At startup the server fetches model prices from LiteLLM. It fetches them again a
 | `overview` | Total cost, cost by model, by day, and the top projects. |
 | `insights` | Run rate, 5-hour blocks, subagent share, and top tools. |
 | `projects` | Projects by cost. |
-| `sessions <project>` | Sessions of one project by cost, with their ids. `<project>` is a name, part of a name, or the encoded folder name. |
+| `sessions [<project>]` | Sessions by cost, with their ids. With no `<project>`, the sessions of every project. `<project>` is a name, part of a name, or the encoded folder name. |
 | `session <id>` | One session: totals, subagents, and the costliest turns. |
 | `agent <session> <agent id>` | One subagent of a session. |
 | `limits [--refresh]` | Plan usage limits. |
@@ -63,7 +63,8 @@ Every command takes `--json` (the API response), `--top <n>` (rows per list, def
 
 ```bash
 claude-code-cost overview --range 30d
-claude-code-cost sessions claude-code-hub --range today --top 10
+claude-code-cost sessions --range 30d --top 10
+claude-code-cost sessions claude-code-hub --range today
 claude-code-cost session d3a7c2e1-5b4f-4c8e-9a12-6f0e8b7d4c31 --json
 ```
 
@@ -119,8 +120,10 @@ All routes in this table return JSON. The guards answer blocked requests with a 
 | `GET /api/insights` | 5-hour blocks, burn rate, run rate, cache savings, token composition, top tools, heatmap, subagent share, and weekly cost. |
 | `GET /api/projects` | Projects with cost, sessions, and last activity. |
 | `GET /api/projects/:path/sessions` | Sessions of one project. `:path` is the encoded project folder name. |
+| `GET /api/sessions` | Sessions of every project, costliest first, each with `projectName` and `encodedProjectPath`. |
 | `GET /api/sessions/:id` | One session, all time, with in-range and today slices. `404` if the session does not exist. |
-| `GET /api/sessions/:id/agents/:agentId` | One subagent of a session. `404` if it does not exist. || `GET /api/usage-limits` | Plan usage from the probe. Add `?refresh=1` to skip the 5-minute cache. `503` if the probe fails. |
+| `GET /api/sessions/:id/agents/:agentId` | One subagent of a session. `404` if it does not exist. |
+| `GET /api/usage-limits` | Plan usage from the probe. Add `?refresh=1` to skip the 5-minute cache. `503` if the probe fails. |
 | `GET /api/pricing` | The loaded prices, only for models whose name starts with `anthropic/` or `claude`. |
 | `POST /api/refresh` | Clears the server cache. Returns `{"ok": true}`. It does not fetch prices again. |
 | `GET /hub-config` | `{"enabled": true, "url": <HUB_URL>}`. Only when the hub runs the app. |
