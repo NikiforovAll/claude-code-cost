@@ -19,7 +19,8 @@
   },
   "actions": {
     "handles": {
-      "session.cost": { "params": { "session": "string?" }, "url": "?view=detail&session={session}", "mode": "message" }
+      "session.cost": { "params": { "session": "string?" }, "url": "?view=detail&session={session}", "mode": "message" },
+      "agent.cost": { "params": { "session": "string", "agent": "string" }, "url": "?view=detail&session={session}&agent={agent}", "mode": "message" }
     }
   }
 }

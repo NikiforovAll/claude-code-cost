@@ -78,6 +78,8 @@ A flag wins over its environment variable. Flags take a value as `--port 3000` o
 
 With a custom config dir, the server reads only `<dir>/projects`. With the default dir, it also reads `~/.config/claude/projects`.
 
+`claude-code-cost <command>` prints costs in the terminal: `overview`, `insights`, `projects`, `sessions`, `session`, `agent` and `limits`. Run `claude-code-cost help` for the flags. A command asks the running dashboard of the config dir, else parses the transcripts itself.
+
 The server has no authentication. Bind a non-loopback address only on a network you trust. See [Configuration and CLI](https://nikiforovall.blog/claude-code-cost/reference/configuration/) for the network rules and the HTTP API.
 
 ## Documentation

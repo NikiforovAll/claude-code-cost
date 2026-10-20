@@ -2575,9 +2575,8 @@ async function navigateToDetail(sessionId) {
   await navigate('detail', { session: sessionId });
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
-async function navigateToAgent(agentId) {
-  await navigate('detail', { session: currentSessionId, agent: agentId });
+async function navigateToAgent(agentId, sessionId = currentSessionId) {
+  await navigate('detail', { session: sessionId, agent: agentId });
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
@@ -3482,6 +3481,7 @@ hub.subscribe('project.changed', (p) => {
 });
 
 hub.handle('session.cost', (p) => p.session && navigateToDetail(p.session));
+hub.handle('agent.cost', (p) => navigateToAgent(p.agent, p.session));
 
 (function initHubTheme() {
   const getTheme = () => (document.body.classList.contains('light') ? 'light' : 'dark');
