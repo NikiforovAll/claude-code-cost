@@ -52,9 +52,9 @@ At startup the server fetches model prices from LiteLLM. It fetches them again a
 | Command | Prints |
 | --- | --- |
 | `overview [--compare]` | Total cost, cost by model, by day, and the top projects. With `--compare`, it also prints the window before this one and the change in total, per model, and per project. |
-| `insights` | Run rate, 5-hour blocks, subagent share, and top tools. |
+| `insights` | Run rate, 5-hour blocks, subagent share, compactions, and top tools. The compaction line gives the count, how many were automatic, and the cost: the summary calls, which are an estimate because Claude Code does not log them, plus the cache re-warm of the turn after each one, which is already in the total. |
 | `projects` | Projects by cost. |
-| `sessions [<project>]` | Sessions by cost, with their ids. With no `<project>`, the sessions of every project. `<project>` is a name, part of a name, or the encoded folder name. |
+| `sessions [<project>] [--match <text>]` | Sessions by cost, with their ids. With no `<project>`, the sessions of every project. `<project>` is a name, part of a name, or the encoded folder name. `--match` keeps only the sessions whose title (the name set with `/rename`) has the text, in any case, and the total covers only those. |
 | `agents` | Subagents grouped by the skill that started them, else by agent type, with runs, total, average per run, and the costliest run's session and agent ids. Workflow agents group apart. |
 | `session <id>` | One session: totals, subagents, and the costliest turns. |
 | `agent <session> <agent id>` | One subagent of a session. |
@@ -67,6 +67,7 @@ claude-code-cost overview --range 30d
 claude-code-cost overview --range 7d --compare
 claude-code-cost sessions --range 30d --top 10
 claude-code-cost sessions claude-code-hub --range today
+claude-code-cost sessions --match rate-limiter --range 30d
 claude-code-cost agents --range 30d
 claude-code-cost session d3a7c2e1-5b4f-4c8e-9a12-6f0e8b7d4c31 --json
 ```
@@ -122,7 +123,7 @@ All routes in this table return JSON. The guards answer blocked requests with a 
 | Route | Returns |
 | --- | --- |
 | `GET /api/overview` | Totals, today's cost, sessions, tokens, cache efficiency, cost series, cost by model, and projects. |
-| `GET /api/insights` | 5-hour blocks, burn rate, run rate, cache savings, token composition, top tools, heatmap, subagent share, and weekly cost. |
+| `GET /api/insights` | 5-hour blocks, burn rate, run rate, cache savings, token composition, top tools, heatmap, subagent share, compactions, and weekly cost. |
 | `GET /api/projects` | Projects with cost, sessions, and last activity. |
 | `GET /api/projects/:path/sessions` | Sessions of one project. `:path` is the encoded project folder name. |
 | `GET /api/sessions` | Sessions of every project, costliest first, each with `projectName` and `encodedProjectPath`. |

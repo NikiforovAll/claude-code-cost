@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveWindow, previousWindow, parseWindowValue, findServer, parseArgs, isCommand } = require('../lib/cli');
+const { resolveWindow, previousWindow, parseWindowValue, findServer, parseArgs, isCommand, matchSessions, main } = require('../lib/cli');
 const { parseCustomRange } = require('../lib/costs');
 
 function configDir(config) {
@@ -105,6 +105,25 @@ describe('previousWindow', () => {
 
   it('has no window before 24h', () => {
     assert.throws(() => previousWindow(parseWindowValue('24h'), now), /not 24h/);
+  });
+});
+
+describe('matchSessions', () => {
+  it('keeps sessions whose title has the text, in any case, and not the first prompt', () => {
+    const d = {
+      sessions: [
+        { sessionId: 'a', customTitle: 'Rate-Limiter fix' },
+        { sessionId: 'b', customTitle: null, firstPrompt: 'rate-limiter please' },
+        { sessionId: 'c', customTitle: 'blob' },
+      ],
+    };
+    assert.deepEqual(matchSessions(d, 'rate-LIMITER').sessions.map((s) => s.sessionId), ['a']);
+  });
+
+  it('refuses --match with no text before it reads anything', async () => {
+    const errs = [];
+    assert.equal(await main(['sessions', '--match'], { out: () => {}, err: (s) => errs.push(s) }), 1);
+    assert.match(errs.join('\n'), /--match takes text/);
   });
 });
 
