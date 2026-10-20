@@ -478,7 +478,13 @@ function cacheData(key, data) {
 }
 
 function isPrefKey(k) {
-  return k.startsWith('cc-cost:sort:') || k === 'cc-cost:range' || k === 'cc-cost:scope' || k === 'cc-cost:view';
+  return (
+    k.startsWith('cc-cost:sort:') ||
+    k === 'cc-cost:range' ||
+    k === 'cc-cost:scope' ||
+    k === 'cc-cost:view' ||
+    k === 'cc-cost:share'
+  );
 }
 
 // Earlier versions persisted API payloads under cc-cost:<url>; drop what they left behind.
@@ -1094,6 +1100,7 @@ function renderDetail() {
   const h = JSON.stringify(d);
   if (lastRenderHash.detail === h) return;
   lastRenderHash.detail = h;
+  const hasSubagents = d.messages.some((m) => m._subagent);
 
   el.innerHTML = `
     <div class="dashboard-content">
@@ -1150,7 +1157,7 @@ function renderDetail() {
       ${compactionNote(d.compactions)}
       ${workflowsSection(d)}
 
-      <div class="charts-row" style="margin-bottom:20px">
+      <div class="charts-row${hasSubagents ? ' with-share' : ''}" style="margin-bottom:20px">
         <div class="chart-box">
           <div class="chart-title">Cumulative Cost</div>
           <canvas id="cumulativeChart"></canvas>
@@ -1159,6 +1166,22 @@ function renderDetail() {
           <div class="chart-title">Token Breakdown per Message</div>
           <canvas id="tokenBreakdownChart"></canvas>
         </div>
+        ${
+          hasSubagents
+            ? `<div class="chart-box">
+          <div class="chart-title share-head">Subagent Share
+            <div class="seg" role="group" aria-label="Split by">
+              <button type="button" class="seg-btn${shareMode === 'agent' ? ' on' : ''}" data-share="agent" onclick="setShareMode('agent')">by agent</button>
+              <button type="button" class="seg-btn${shareMode === 'type' ? ' on' : ''}" data-share="type" onclick="setShareMode('type')">by type</button>
+            </div>
+          </div>
+          <div class="share-body">
+            <div class="share-pie"><canvas id="subagentShareChart"></canvas></div>
+            <ul class="share-legend" id="subagentShareLegend"></ul>
+          </div>
+        </div>`
+            : ''
+        }
       </div>
 
       ${rangeBrushHtml(d.messages.length)}
@@ -1183,6 +1206,7 @@ function renderDetail() {
   requestAnimationFrame(() => {
     destroyChart('cumulative');
     destroyChart('tokenBreakdown');
+    destroyChart('subagentShare');
     const range = detailRangeFor(d);
     applyDetailRange(d.messages, range);
     initRangeBrush(d.messages, d.workflows, range);
@@ -1287,11 +1311,15 @@ function renderMessageRows(slice, total) {
   body.innerHTML = rows.join('');
 }
 
+function subagentKind(sa) {
+  return sa.workflowId ? 'workflow' : sa.agentType || 'agent';
+}
+
 function buildMessageRow(m) {
   const sa = m._subagent;
   const toolTags = !sa && m.tools ? m.tools.map((t) => `<span class="tool-tag">${esc(t)}</span>`).join(' ') : '';
   const modelCol = sa
-    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.workflowId ? 'workflow' : sa.agentType)}</span>${sa.description ? ` <span class="subagent-desc">${esc(sa.description)}</span>` : ''}`
+    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(subagentKind(sa))}</span>${sa.description ? ` <span class="subagent-desc">${esc(sa.description)}</span>` : ''}`
     : `<span class="model-badge">${esc(shortModel(m.model))}</span>${toolTags ? ` ${toolTags}` : ''}`;
   const rowAttrs = sa
     ? ` class="subagent-row" data-clickable onclick="navigateToAgent('${escAttrJs(sa.agentId)}')" title="${esc(`${sa.messageCount} turns · open subagent`)}"`
@@ -1710,6 +1738,129 @@ function renderTokenBreakdownChart(messages) {
   markCompactions(charts.tokenBreakdown, messages, c);
 }
 
+let shareMode = localStorage.getItem('cc-cost:share') === 'type' ? 'type' : 'agent';
+window.setShareMode = setShareMode;
+
+function setShareMode(mode) {
+  shareMode = mode;
+  localStorage.setItem('cc-cost:share', mode);
+  for (const b of document.querySelectorAll('[data-share]')) b.classList.toggle('on', b.dataset.share === mode);
+  syncSubagentShare(detailSlice, getChartColors());
+}
+
+function syncSubagentShare(messages, c) {
+  const chart = charts.subagentShare;
+  if (!chart) return renderSubagentShareChart(messages);
+  chart.data = subagentShareChartData(messages, c);
+  chart.update('none');
+  renderSubagentShareLegend(chart.data.slices);
+}
+
+function shareLabel(s) {
+  return s.type ? `${s.type} · ${s.name}` : s.name;
+}
+
+function subagentShareChartData(messages, c) {
+  const groups = new Map();
+  let main = 0;
+  for (const m of messages) {
+    const sa = m._subagent;
+    if (!sa) {
+      main += m.cost;
+      continue;
+    }
+    const kind = subagentKind(sa);
+    const key = shareMode === 'type' ? kind : sa.agentId;
+    let group = groups.get(key);
+    if (!group) {
+      group =
+        shareMode === 'type'
+          ? { name: kind, cost: 0 }
+          : { name: sa.description || kind, type: sa.agentType, agentId: sa.agentId, cost: 0 };
+      groups.set(key, group);
+    }
+    group.cost += m.cost;
+  }
+  const palette = chartPalette(c);
+  const agents = [...groups.values()].sort((a, b) => b.cost - a.cost);
+  // The main loop keeps the accent wherever it ranks; agents cycle through the other five colors.
+  const slices = [
+    { name: 'main', cost: main, color: palette[0] },
+    ...agents.map((a, i) => ({ ...a, color: palette[1 + (i % (palette.length - 1))] })),
+  ].sort((a, b) => b.cost - a.cost);
+  const colors = slices.map((s) => s.color);
+  return {
+    labels: slices.map((s) => s.name),
+    slices,
+    datasets: [
+      {
+        ...barDataset(
+          slices.map((s) => s.cost),
+          colors,
+        ),
+        borderRadius: 0,
+      },
+    ],
+  };
+}
+
+function renderSubagentShareChart(messages) {
+  const canvas = document.getElementById('subagentShareChart');
+  if (!canvas || !messages?.length) return;
+  destroyChart('subagentShare');
+
+  const c = getChartColors();
+  const { scales: _scales, ...defaults } = chartDefaults(c);
+
+  charts.subagentShare = new Chart(canvas, {
+    type: 'doughnut',
+    data: subagentShareChartData(messages, c),
+    options: {
+      ...defaults,
+      cutout: '55%',
+      onClick: (_e, els, chart) => {
+        const agentId = chart.data.slices[els[0]?.index]?.agentId;
+        if (agentId) navigateToAgent(agentId);
+      },
+      onHover: (e, els, chart) => {
+        e.native.target.style.cursor = chart.data.slices[els[0]?.index]?.agentId ? 'pointer' : '';
+      },
+      plugins: {
+        ...withTooltip(defaults, {
+          title: (items) => {
+            const s = items[0]?.chart.data.slices[items[0].dataIndex];
+            return s ? shareLabel(s) : '';
+          },
+          label: (ctx) => {
+            const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
+            return `${usd(ctx.parsed)} (${formatPct(ctx.parsed, total)}%)`;
+          },
+        }),
+      },
+    },
+  });
+  renderSubagentShareLegend(charts.subagentShare.data.slices);
+}
+
+// An HTML list, not the Chart.js legend: a session can have tens of agents, and a canvas legend
+// that runs out of room drops them.
+function renderSubagentShareLegend(slices) {
+  const el = document.getElementById('subagentShareLegend');
+  if (!el) return;
+  const total = slices.reduce((s, x) => s + x.cost, 0);
+  el.innerHTML = slices
+    .map((s) => {
+      const attrs = s.agentId ? ` class="share-agent" onclick="navigateToAgent('${escAttrJs(s.agentId)}')"` : '';
+      return `<li${attrs} title="${esc(shareLabel(s))}">
+        <span class="share-swatch" style="background:${hexToRgba(s.color, 0.5)};border-color:${s.color}"></span>
+        <span class="share-name">${esc(s.name)}</span>
+        <span class="share-cost">${formatCost(s.cost)}</span>
+        <span class="share-pct">${formatPct(s.cost, total)}%</span>
+      </li>`;
+    })
+    .join('');
+}
+
 // #region RANGE BRUSH
 // Long sessions squash both per-message charts into noise, so the detail view shows a window of
 // the last DETAIL_WINDOW messages by default and lets the user drag that window across an overview
@@ -1799,6 +1950,7 @@ function applyDetailRange(messages, range) {
     renderCumulativeChart(detailSlice);
     renderTokenBreakdownChart(detailSlice);
   }
+  syncSubagentShare(detailSlice, c);
 }
 
 function rangeBrushHtml(total) {

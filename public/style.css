@@ -752,6 +752,88 @@ body {
   margin-bottom: 20px;
 }
 
+.charts-row.with-share {
+  grid-template-columns: 3fr 2fr 2fr;
+}
+
+.share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  height: 150px;
+}
+
+.share-pie {
+  position: relative;
+  flex: 0 0 150px;
+  height: 100%;
+}
+
+.share-legend {
+  display: grid;
+  grid-template-columns: 10px minmax(0, max-content) auto auto;
+  align-content: start;
+  justify-content: start;
+  column-gap: 8px;
+  min-width: 0;
+  max-height: 100%;
+  margin: 0;
+  padding: 0 8px 0 0;
+  list-style: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.share-legend li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 2px 0;
+  border-radius: 3px;
+}
+
+.share-legend li.share-agent {
+  cursor: pointer;
+}
+
+.share-legend li.share-agent:hover {
+  background: var(--bg-hover);
+}
+
+.share-swatch {
+  width: 10px;
+  height: 10px;
+  border: 1px solid;
+  border-radius: 2px;
+}
+
+.share-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-cost {
+  color: var(--text-primary);
+}
+
+.share-pct {
+  text-align: right;
+  color: var(--text-muted);
+}
+
 .chart-box {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -2302,7 +2384,8 @@ body.light {
 /* #region RESPONSIVE */
 
 @media (max-width: 900px) {
-  .charts-row {
+  .charts-row,
+  .charts-row.with-share {
     grid-template-columns: 1fr;
   }
   .cards-row {
