@@ -1018,6 +1018,39 @@ body {
   background: var(--compact);
 }
 
+.rb-burst.agent::before,
+.rb-burst.agent::after {
+  background: var(--text-tertiary);
+}
+
+.rb-burst.agent::after {
+  top: auto;
+  bottom: 3px;
+  border-radius: 1px;
+}
+
+.rb-burst.costly::before,
+.rb-burst.costly::after {
+  background: var(--error);
+}
+
+.rb-burst-count .agent {
+  color: var(--text-tertiary);
+}
+
+.rb-burst-count .agent i {
+  border-radius: 1px;
+  background: var(--text-tertiary);
+}
+
+.rb-burst-count .costly {
+  color: var(--error);
+}
+
+.rb-burst-count .costly i {
+  background: var(--error);
+}
+
 /* The shade outside the window is the window's own shadow, clipped by the track. */
 .rb-window {
   position: absolute;
@@ -1326,6 +1359,31 @@ body.light .rb-window {
   text-transform: uppercase;
   color: var(--text-muted);
   background: var(--bg-hover);
+}
+
+.subagent-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.subagent-row {
+  cursor: pointer;
+}
+
+.subagent-row:hover .subagent-desc {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+.detail-agent-type {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
+.detail-agent-type .subagent-tag {
+  margin-left: 0;
 }
 
 .tool-tag {

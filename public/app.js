@@ -15,6 +15,7 @@ let currentProjectName = null;
 let scopeProject = null;
 let scopeProjectName = null;
 let currentSessionId = null;
+let currentAgentId = null;
 let lastSelectedProject = null;
 let lastSelectedSession = null;
 const DEFAULT_SORT = {
@@ -255,6 +256,7 @@ function getUrlState() {
     project: p.get('project'),
     projectName: p.get('projectName'),
     session: p.get('session'),
+    agent: p.get('agent'),
   };
 }
 
@@ -435,6 +437,7 @@ function updateUrl() {
   if (currentProjectPath) p.set('project', currentProjectPath);
   if (currentProjectName) p.set('projectName', currentProjectName);
   if (currentSessionId) p.set('session', currentSessionId);
+  if (currentAgentId) p.set('agent', currentAgentId);
   const qs = p.toString();
   history.replaceState(null, '', qs ? `?${qs}` : '/');
   sessionStorage.setItem('cc-cost:nav', qs);
@@ -568,8 +571,12 @@ async function fetchSessions(encodedPath) {
   sessionsModelDistribution = data.modelDistribution || [];
 }
 
-async function fetchSessionDetail(sessionId) {
-  sessionDetailData = await fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}?${rangeParams()}`, true);
+async function fetchSessionDetail(sessionId, agentId) {
+  const agentPath = agentId ? `/agents/${encodeURIComponent(agentId)}` : '';
+  sessionDetailData = await fetchJSON(
+    `/api/sessions/${encodeURIComponent(sessionId)}${agentPath}?${rangeParams()}`,
+    true,
+  );
   // Populate project context when opening via deep link (no project in URL)
   if (sessionDetailData && !currentProjectPath) {
     currentProjectPath = sessionDetailData.encodedProjectPath;
@@ -1095,9 +1102,16 @@ function renderDetail() {
         <span class="sep">/</span>
         <a onclick="navigateToSessions('${escAttrJs(d.encodedProjectPath)}', '${escAttrJs(d.projectPath)}')">${esc(d.projectPath)}</a>
         <span class="sep">/</span>
-        <span class="current">${esc(d.customTitle || d.firstPrompt || d.sessionId)}</span>
+        ${
+          d.agentId
+            ? `<a onclick="navigateToDetail('${escAttrJs(d.sessionId)}')">${esc(d.sessionTitle)}</a>
+        <span class="sep">/</span>
+        <span class="current">${esc(d.description || d.agentId)}</span>`
+            : `<span class="current">${esc(d.customTitle || d.firstPrompt || d.sessionId)}</span>`
+        }
       </div>
 
+      ${d.agentId ? `<div class="detail-agent-type"><span class="subagent-tag">${esc(d.agentType)}</span> ${esc(d.agentId)}</div>` : ''}
       ${d.firstPrompt ? `<div style="color:var(--text-tertiary);font-size:12px;margin-bottom:16px;font-style:italic">"${esc(d.firstPrompt)}"</div>` : ''}
 
       <div class="detail-header">
@@ -1169,8 +1183,9 @@ function renderDetail() {
   requestAnimationFrame(() => {
     destroyChart('cumulative');
     destroyChart('tokenBreakdown');
-    applyDetailRange(d.messages, detailRangeFor(d));
-    initRangeBrush(d.messages, d.workflows);
+    const range = detailRangeFor(d);
+    applyDetailRange(d.messages, range);
+    initRangeBrush(d.messages, d.workflows, range);
   });
 }
 
@@ -1276,9 +1291,12 @@ function buildMessageRow(m) {
   const sa = m._subagent;
   const toolTags = !sa && m.tools ? m.tools.map((t) => `<span class="tool-tag">${esc(t)}</span>`).join(' ') : '';
   const modelCol = sa
-    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.workflowId ? 'workflow' : sa.agentType)}</span>`
+    ? `<span class="model-badge">${esc(shortModel(m.model))}</span> <span class="subagent-tag">${esc(sa.workflowId ? 'workflow' : sa.agentType)}</span>${sa.description ? ` <span class="subagent-desc">${esc(sa.description)}</span>` : ''}`
     : `<span class="model-badge">${esc(shortModel(m.model))}</span>${toolTags ? ` ${toolTags}` : ''}`;
-  return `<tr>
+  const rowAttrs = sa
+    ? ` class="subagent-row" data-clickable onclick="navigateToAgent('${escAttrJs(sa.agentId)}')" title="${esc(`${sa.messageCount} turns · open subagent`)}"`
+    : '';
+  return `<tr${rowAttrs}>
     <td class="muted">${m.index}</td>
     <td class="muted">${localTime(m.timestamp)}</td>
     <td>${modelCol}</td>
@@ -1700,7 +1718,8 @@ function renderTokenBreakdownChart(messages) {
 const DETAIL_WINDOW_PRESETS = [25, 50, 100, 200];
 const DETAIL_WINDOW = DETAIL_WINDOW_PRESETS[0];
 const DETAIL_WINDOW_MIN = 10;
-let detailRange = null;
+// Keyed by session or session/agent, so backing out of a subagent returns to the same window.
+const detailRanges = new Map();
 let detailSlice = [];
 
 function median(sorted) {
@@ -1713,6 +1732,14 @@ function median(sorted) {
 // surface their own outliers; the absolute floor drops noise in tiny sessions.
 const CACHE_BURST_RATIO = 4;
 const CACHE_BURST_MIN_TOKENS = 20000;
+const SUBAGENT_COSTLY_USD = 1;
+const MARKER_KINDS = {
+  burst: { cls: '', label: 'cache burst' },
+  compaction: { cls: 'compact', label: 'compaction' },
+  agent: { cls: 'agent', label: 'subagent' },
+  costlyAgent: { cls: 'agent costly', label: 'subagent', suffix: ` ≥ ${formatCost(SUBAGENT_COSTLY_USD)}` },
+  workflow: { cls: 'workflow', label: 'workflow' },
+};
 
 // A compaction explains the burst on the turn that follows it, so that turn is labelled
 // `compaction`; `burst` is left for the re-caches with no boundary behind them.
@@ -1728,7 +1755,12 @@ function notableEvents(messages) {
       const tip = `#${m.index} · ${c.trigger} compaction ${formatTokens(c.preTokens)} → ${formatTokens(c.postTokens)} · ~${formatCost(c.estCost)}`;
       return [{ i, kind: 'compaction', tip }];
     }
-    if (!m._subagent && m.cacheCreationTokens >= threshold) {
+    const sa = m._subagent;
+    if (sa && !sa.workflowId) {
+      const tip = `#${m.index} · ${sa.agentType}${sa.description ? ` · ${sa.description}` : ''} · ${formatCost(m.cost)}`;
+      return [{ i, kind: m.cost >= SUBAGENT_COSTLY_USD ? 'costlyAgent' : 'agent', tip }];
+    }
+    if (!sa && m.cacheCreationTokens >= threshold) {
       return [{ i, kind: 'burst', tip: `#${m.index} · cache write ${formatTokens(m.cacheCreationTokens)}` }];
     }
     return [];
@@ -1742,12 +1774,14 @@ function clampRange(start, end, total) {
 
 function detailRangeFor(d) {
   const total = d.messages.length;
-  const prev = detailRange?.key === d.sessionId ? detailRange : null;
+  const key = d.agentId ? `${d.sessionId}/${d.agentId}` : d.sessionId;
+  const prev = detailRanges.get(key) || null;
   const size = prev ? prev.end - prev.start : DETAIL_WINDOW;
   const atTail = !prev || prev.end === prev.total;
   const start = atTail ? total - size : prev.start;
-  detailRange = { key: d.sessionId, total, ...clampRange(start, start + size, total) };
-  return detailRange;
+  const range = { total, ...clampRange(start, start + size, total) };
+  detailRanges.set(key, range);
+  return range;
 }
 
 function applyDetailRange(messages, range) {
@@ -1799,11 +1833,10 @@ function rangeBrushHtml(total) {
 const rangeOverviewSvg =
   '<svg class="rb-overview" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><polygon /><polyline /></svg>';
 
-function initRangeBrush(messages, workflows) {
+function initRangeBrush(messages, workflows, range) {
   const root = document.getElementById('rangeBrush');
   if (!root) return;
   const total = messages.length;
-  const range = detailRange;
   const q = (sel) => root.querySelector(sel);
   const track = q('.rb-track');
   const win = q('.rb-window');
@@ -1831,17 +1864,18 @@ function initRangeBrush(messages, workflows) {
   burstsEl.innerHTML = markers
     .map(
       (k) =>
-        `<button type="button" class="rb-burst${k.kind === 'compaction' ? ' compact' : ''}" data-i="${esc(String(k.i))}" style="left:${((k.i + 0.5) / total) * 100}%" title="${esc(k.tip)}" aria-label="${esc(k.tip)}"></button>`,
+        `<button type="button" class="rb-burst ${esc(MARKER_KINDS[k.kind].cls)}" data-i="${esc(String(k.i))}" style="left:${((k.i + 0.5) / total) * 100}%" title="${esc(k.tip)}" aria-label="${esc(k.tip)}"></button>`,
     )
     .join('');
   const burstEls = [...burstsEl.children].map((el, k) => ({ el, i: markers[k].i }));
-  const counts = [
-    [markers.filter((k) => k.kind === 'burst').length, 'cache burst', ''],
-    [markers.filter((k) => k.kind === 'compaction').length, 'compaction', ' class="compact"'],
-    [runs.length, 'workflow', ' class="workflow"'],
-  ]
-    .filter(([n]) => n)
-    .map(([n, label, attr]) => `<span${attr}><i></i>${n} ${label}${n === 1 ? '' : 's'}</span>`);
+  const tally = { workflow: runs.length };
+  for (const k of markers) tally[k.kind] = (tally[k.kind] || 0) + 1;
+  const counts = Object.entries(MARKER_KINDS)
+    .filter(([kind]) => tally[kind])
+    .map(([kind, { cls, label, suffix = '' }]) => {
+      const n = tally[kind];
+      return `<span class="${esc(cls)}"><i></i>${n} ${label}${n === 1 ? '' : 's'}${suffix}</span>`;
+    });
   if (counts.length) {
     burstCount.hidden = false;
     burstCount.innerHTML = counts.join('<span class="rb-sep">·</span>');
@@ -2498,11 +2532,18 @@ function showView(viewId) {
   if (el) el.classList.add('active');
 }
 
+function agentFor(view, agent) {
+  return view === 'detail' ? agent || null : null;
+}
+
 async function navigate(view, params) {
   currentView = view;
   if (params?.project) currentProjectPath = params.project;
   if (params?.projectName) currentProjectName = params.projectName;
   if (params?.session) currentSessionId = params.session;
+  const nextAgent = agentFor(view, params?.agent);
+  if (nextAgent !== currentAgentId) sessionDetailData = null;
+  currentAgentId = nextAgent;
 
   // Clear downstream state
   if (view === 'overview' || view === 'insights') {
@@ -2532,6 +2573,11 @@ async function navigateToDetail(sessionId) {
   lastSelectedSession = sessionId;
   currentSessionId = sessionId;
   await navigate('detail', { session: sessionId });
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
+async function navigateToAgent(agentId) {
+  await navigate('detail', { session: currentSessionId, agent: agentId });
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: called from HTML onclick
@@ -2677,7 +2723,7 @@ async function loadAndRender(view) {
             lastRenderHash.detail = null;
             renderDetail();
           }
-          await fetchSessionDetail(currentSessionId);
+          await fetchSessionDetail(currentSessionId, currentAgentId);
           if (myNav !== navCounter) return;
           renderDetail();
         }
@@ -2692,8 +2738,13 @@ async function loadAndRender(view) {
     // stale cursor, not a broken app: drop it and land on the overview.
     if (err.status === 404 && view === 'detail') {
       sessionDetailData = null;
-      showToast('Not in this config dir — showing overview');
-      await navigate('overview');
+      if (currentAgentId) {
+        showToast('Subagent not found — showing session');
+        await navigateToDetail(currentSessionId);
+      } else {
+        showToast('Not in this config dir — showing overview');
+        await navigate('overview');
+      }
       return;
     }
     showToast(`Error: ${err.message}`);
@@ -3222,6 +3273,10 @@ function activateSelectedRow() {
 
 async function goBack() {
   let target;
+  if (currentView === 'detail' && currentAgentId) {
+    await navigateToDetail(currentSessionId);
+    return;
+  }
   if (currentView === 'detail') {
     target = currentProjectPath ? 'sessions' : 'overview';
   } else if (currentView === 'sessions' || currentView === 'insights') {
@@ -3491,7 +3546,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentSessionId = state.session;
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
-    await navigate('detail', { session: state.session });
+    await navigate('detail', { session: state.session, agent: state.agent });
   } else if (state.project) {
     currentProjectPath = state.project;
     currentProjectName = state.projectName;
@@ -3516,6 +3571,7 @@ window.addEventListener('popstate', () => {
   currentProjectPath = state.project;
   currentProjectName = state.projectName;
   currentSessionId = state.session;
+  currentAgentId = agentFor(state.view, state.agent);
   lastRenderHash = {};
   loadAndRender(currentView);
 });

@@ -519,6 +519,44 @@ function mostFrequentModel(counts) {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
 }
 
+// An agent log writes one line per streamed content block, each carrying the usage as it stood
+// then, so a turn's first line can report one output token and its last the whole reply: the
+// turn is the largest usage logged for its (message.id, requestId). The session log repeats the
+// final usage on every line, which is why first-wins reads the same there.
+// Session and project loads read every agent log for its totals alone, so tools are opt-in.
+async function readAgentTurns(filePath, pricing, { withTools = false } = {}) {
+  const kept = new Map();
+  const unhashed = [];
+  await processJSONLFile(filePath, async (line) => {
+    let parsed;
+    try { parsed = JSON.parse(line); } catch { return; }
+    const usage = parsed.message?.usage;
+    if (!usage?.input_tokens && usage?.input_tokens !== 0) return;
+    if (!parsed.timestamp) return;
+
+    // Only what the turn needs: `parsed` also holds the turn's content blocks.
+    const entry = { costUSD: parsed.costUSD, timestamp: parsed.timestamp, message: { model: parsed.message.model, usage }, tools: null };
+    const tools = withTools ? extractTools(parsed.message?.content) : null;
+    const hash = createDedupeHash(parsed);
+    if (!hash) { entry.tools = tools; unhashed.push(entry); return; }
+    const prev = kept.get(hash);
+    const allTools = prev?.tools && tools ? prev.tools.concat(tools) : prev?.tools || tools;
+    if (!prev || (usage.output_tokens || 0) > (prev.message.usage.output_tokens || 0)) kept.set(hash, entry);
+    kept.get(hash).tools = allTools;
+  });
+  return [...kept.values(), ...unhashed].map(e => ({
+    cost: calculateEntryCost(e, pricing),
+    inputTokens: e.message.usage.input_tokens || 0,
+    outputTokens: e.message.usage.output_tokens || 0,
+    cacheCreationTokens: e.message.usage.cache_creation_input_tokens || 0,
+    cacheReadTokens: e.message.usage.cache_read_input_tokens || 0,
+    speed: e.message.usage.speed || 'standard',
+    model: e.message.model || 'unknown',
+    timestamp: e.timestamp,
+    tools: e.tools,
+  }));
+}
+
 async function loadSubagentData(subagentInfos, pricing) {
   return Promise.all(subagentInfos.map(async (info) => {
     const agent = {
@@ -534,35 +572,7 @@ async function loadSubagentData(subagentInfos, pricing) {
       firstTimestamp: null,
       lastTimestamp: null,
     };
-    // An agent log writes one line per streamed content block, each carrying the usage as it stood
-    // then, so a turn's first line can report one output token and its last the whole reply: the
-    // turn is the largest usage logged for its (message.id, requestId). The session log repeats the
-    // final usage on every line, which is why first-wins reads the same there.
-    const kept = new Map();
-    const unhashed = [];
-    await processJSONLFile(info.filePath, async (line) => {
-      let parsed;
-      try { parsed = JSON.parse(line); } catch { return; }
-      const usage = parsed.message?.usage;
-      if (!usage?.input_tokens && usage?.input_tokens !== 0) return;
-      if (!parsed.timestamp) return;
-
-      // Only what the totals need: `parsed` also holds the turn's content blocks.
-      const entry = { costUSD: parsed.costUSD, timestamp: parsed.timestamp, message: { model: parsed.message.model, usage } };
-      const hash = createDedupeHash(parsed);
-      if (!hash) { unhashed.push(entry); return; }
-      const prev = kept.get(hash);
-      if (!prev || (usage.output_tokens || 0) > (prev.message.usage.output_tokens || 0)) kept.set(hash, entry);
-    });
-    const turns = [...kept.values(), ...unhashed].map(e => ({
-      cost: calculateEntryCost(e, pricing),
-      inputTokens: e.message.usage.input_tokens || 0,
-      outputTokens: e.message.usage.output_tokens || 0,
-      cacheCreationTokens: e.message.usage.cache_creation_input_tokens || 0,
-      cacheReadTokens: e.message.usage.cache_read_input_tokens || 0,
-      model: e.message.model || 'unknown',
-      timestamp: e.timestamp,
-    }));
+    const turns = await readAgentTurns(info.filePath, pricing);
     Object.assign(agent, summarizeMessages(turns));
     for (const t of turns) {
       agent.models.add(t.model);
@@ -1087,14 +1097,8 @@ async function getSessionDetailData(sessionId) {
     if (!session) continue;
 
     // Sort messages by timestamp
-    session.messages.sort(byTimestamp);
-
     // Add cumulative cost
-    let cumulative = 0;
-    const messages = session.messages.map((m, i) => {
-      cumulative += m.cost;
-      return { ...m, index: i + 1, cumulativeCost: cumulative };
-    });
+    const messages = withRunningCost(session.messages);
 
     // One folded-in message per agent, and `messages` is already sorted, so a group's ends are
     // the run's first and last agent.
@@ -1153,6 +1157,59 @@ async function getSessionDetailData(sessionId) {
   }
 
   return null;
+}
+
+function withRunningCost(msgs) {
+  let cumulative = 0;
+  return msgs.sort(byTimestamp).map((m, i) => {
+    cumulative += m.cost;
+    return { ...m, index: i + 1, cumulativeCost: cumulative };
+  });
+}
+
+// Most agents sit directly in subagents/; only a workflow's agents need the walk.
+function findAgentFile(session, agentId) {
+  if (!/^agent-[\w-]+$/.test(agentId)) return null;
+  for (const baseDir of getProjectsDirs()) {
+    const sessionDir = path.join(baseDir, session.encodedProjectPath, session.sessionId);
+    const direct = path.join(sessionDir, 'subagents', `${agentId}.jsonl`);
+    if (fs.existsSync(direct)) return direct;
+    const nested = scanSubagentDir(sessionDir).find(a => a.agentId === agentId);
+    if (nested) return nested.filePath;
+  }
+  return null;
+}
+
+// Same shape as a session detail, so the detail view renders one agent's turns unchanged.
+async function getAgentDetailData(sessionId, agentId) {
+  const cacheKey = `agent_${sessionId}_${agentId}`;
+  const cached = getCache(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const session = await getSessionDetailData(sessionId);
+  const filePath = session && findAgentFile(session, agentId);
+  if (!filePath) return null;
+  const folded = session.messages.find(m => m._subagent?.agentId === agentId)?._subagent;
+
+  const pricing = await fetchPricing();
+  const messages = withRunningCost(await readAgentTurns(filePath, pricing, { withTools: true }));
+  const { messageCount, ...totals } = summarizeMessages(messages);
+  const result = {
+    sessionId,
+    agentId,
+    agentType: folded?.agentType || 'unknown',
+    description: folded?.description || '',
+    sessionTitle: session.customTitle || session.firstPrompt || sessionId,
+    projectPath: session.projectPath,
+    encodedProjectPath: session.encodedProjectPath,
+    ...totals,
+    models: [...new Set(messages.map(m => m.model).filter(isRealModel))],
+    firstTimestamp: messages[0]?.timestamp || null,
+    lastTimestamp: messages.at(-1)?.timestamp || null,
+    messages,
+  };
+  setCache(cacheKey, result);
+  return result;
 }
 
 // Claude's usage limits work in rolling 5-hour billing windows. A block starts at the first
@@ -1517,6 +1574,17 @@ app.get('/api/sessions/:id', withRange(), async (req, res) => {
   } catch (err) {
     console.error('[API] session detail error:', err);
     res.status(500).json({ error: 'Failed to load session detail' });
+  }
+});
+
+app.get('/api/sessions/:id/agents/:agentId', withRange(), async (req, res) => {
+  try {
+    const base = await getAgentDetailData(req.params.id, req.params.agentId);
+    if (!base) return res.status(404).json({ error: 'Agent not found' });
+    res.json(withSessionSlices(base, req.range));
+  } catch (err) {
+    console.error('[API] agent detail error:', err);
+    res.status(500).json({ error: 'Failed to load agent detail' });
   }
 });
 
