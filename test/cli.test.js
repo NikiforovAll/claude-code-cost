@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveWindow, parseWindowValue, findServer, parseArgs, isCommand } = require('../lib/cli');
+const { resolveWindow, previousWindow, parseWindowValue, findServer, parseArgs, isCommand } = require('../lib/cli');
 const { parseCustomRange } = require('../lib/costs');
 
 function configDir(config) {
@@ -82,6 +82,29 @@ describe('resolveWindow', () => {
     assert.throws(() => windowOf({ from: '2026-01-01' }), /pair/);
     assert.throws(() => windowOf({ from: '2026-02-30', to: '2026-03-01' }), /pair/);
     assert.throws(() => windowOf({ from: '2024-01-01', to: '2025-06-01' }), /365 days/);
+  });
+});
+
+describe('previousWindow', () => {
+  const now = new Date(2026, 2, 3, 15);
+
+  it('takes the days before n days that end today', () => {
+    assert.deepEqual(previousWindow(parseWindowValue('7d'), now).range, { from: '2026-02-18', to: '2026-02-24' });
+  });
+
+  it('takes yesterday for today', () => {
+    assert.deepEqual(previousWindow(parseWindowValue('today'), now).range, { from: '2026-03-02', to: '2026-03-02' });
+  });
+
+  it('shifts a from/to pair back by its length', () => {
+    const { w } = windowOf({ from: '2026-01-01', to: '2026-01-10' });
+    const prev = previousWindow(w, now);
+    assert.deepEqual(prev.range, { from: '2025-12-22', to: '2025-12-31' });
+    assert.equal(prev.query, 'from=2025-12-22&to=2025-12-31');
+  });
+
+  it('has no window before 24h', () => {
+    assert.throws(() => previousWindow(parseWindowValue('24h'), now), /not 24h/);
   });
 });
 

@@ -51,10 +51,11 @@ At startup the server fetches model prices from LiteLLM. It fetches them again a
 
 | Command | Prints |
 | --- | --- |
-| `overview` | Total cost, cost by model, by day, and the top projects. |
+| `overview [--compare]` | Total cost, cost by model, by day, and the top projects. With `--compare`, it also prints the window before this one and the change in total, per model, and per project. |
 | `insights` | Run rate, 5-hour blocks, subagent share, and top tools. |
 | `projects` | Projects by cost. |
 | `sessions [<project>]` | Sessions by cost, with their ids. With no `<project>`, the sessions of every project. `<project>` is a name, part of a name, or the encoded folder name. |
+| `agents` | Subagents grouped by the skill that started them, else by agent type, with runs, total, average per run, and the costliest run's session and agent ids. Workflow agents group apart. |
 | `session <id>` | One session: totals, subagents, and the costliest turns. |
 | `agent <session> <agent id>` | One subagent of a session. |
 | `limits [--refresh]` | Plan usage limits. |
@@ -63,8 +64,10 @@ Every command takes `--json` (the API response), `--top <n>` (rows per list, def
 
 ```bash
 claude-code-cost overview --range 30d
+claude-code-cost overview --range 7d --compare
 claude-code-cost sessions --range 30d --top 10
 claude-code-cost sessions claude-code-hub --range today
+claude-code-cost agents --range 30d
 claude-code-cost session d3a7c2e1-5b4f-4c8e-9a12-6f0e8b7d4c31 --json
 ```
 
@@ -78,6 +81,8 @@ The window comes from the first of these that is set:
 4. `7d`.
 
 A bad flag is an error. A bad environment or config value prints a warning and is skipped.
+
+For `overview --compare`, the window before has the same number of days and ends the day before the window starts. Today counts only up to now, so `today` compares part of a day with all of yesterday. `24h` has no window before it. The command also parses the window before, so it takes longer than the window alone, and `--json` prints `{current, previous, previousWindow}`.
 
 ### Server or files
 
@@ -121,6 +126,7 @@ All routes in this table return JSON. The guards answer blocked requests with a 
 | `GET /api/projects` | Projects with cost, sessions, and last activity. |
 | `GET /api/projects/:path/sessions` | Sessions of one project. `:path` is the encoded project folder name. |
 | `GET /api/sessions` | Sessions of every project, costliest first, each with `projectName` and `encodedProjectPath`. |
+| `GET /api/agents` | Subagent groups (`kind` is `skill`, `workflow`, or `agent`), costliest first, each with `runs`, `totalCost`, `avgCost`, `sessionCount`, and its `costliest` run. |
 | `GET /api/sessions/:id` | One session, all time, with in-range and today slices. `404` if the session does not exist. |
 | `GET /api/sessions/:id/agents/:agentId` | One subagent of a session. `404` if it does not exist. |
 | `GET /api/usage-limits` | Plan usage from the probe. Add `?refresh=1` to skip the 5-minute cache. `503` if the probe fails. |
@@ -132,16 +138,16 @@ The server keeps computed results for 30 seconds.
 
 ### Query parameters
 
-The GET data routes (`/api/overview`, `/api/insights`, `/api/projects`, `/api/projects/:path/sessions`, and `/api/sessions/:id`) take a date range:
+The GET data routes (`/api/overview`, `/api/insights`, `/api/agents`, `/api/projects`, `/api/projects/:path/sessions`, `/api/sessions`, and `/api/sessions/:id`) take a date range:
 
 - `range=today` starts at local midnight.
 - `range=24h` is the rolling last 24 hours.
 - `range=<N>` is the last N calendar days, ending today.
 - `from=YYYY-MM-DD&to=YYYY-MM-DD` is a custom window of whole local days. It wins over `range`. If `from` is after `to`, the server swaps them. Dates after today become today. A malformed date, or only one of the two, gives `400` with `Invalid date range`.
 
-With no range, `/api/overview` and `/api/insights` use 30 days. The other routes use all time. The dashboard itself starts on 3 Days, and it always sends the range you pick.
+With no range, `/api/overview`, `/api/insights`, and `/api/agents` use 30 days. The other routes use all time. The dashboard itself starts on 3 Days, and it always sends the range you pick.
 
-`/api/overview`, `/api/insights`, and `/api/projects` also take `project=<encoded dir>`, the encoded project folder name. To sum several projects as one, for example a repo and its worktrees, join their folder names with commas. `/api/projects/:path/sessions` takes the same list as `:path`. Each name must match `[A-Za-z0-9._-]+`, else the server returns `400` with `Invalid project`.
+`/api/overview`, `/api/insights`, `/api/agents`, and `/api/projects` also take `project=<encoded dir>`, the encoded project folder name. To sum several projects as one, for example a repo and its worktrees, join their folder names with commas. `/api/projects/:path/sessions` takes the same list as `:path`. Each name must match `[A-Za-z0-9._-]+`, else the server returns `400` with `Invalid project`.
 
 ```bash
 curl "http://localhost:3543/api/overview?range=7"
