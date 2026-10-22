@@ -21,6 +21,7 @@
     "open": "^11.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.10",
     "husky": "^9.0.0"
   },
   "keywords": [
