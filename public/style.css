@@ -1447,6 +1447,14 @@ body.light .rb-window {
   font-size: 10px;
 }
 
+.data-table .num,
+.data-table .cost-cell,
+.messages-table .num,
+.messages-table .cost-cell,
+.messages-table .cumulative {
+  text-align: right;
+}
+
 .compaction-tag {
   text-transform: uppercase;
   color: color-mix(in srgb, var(--compact) 55%, var(--text-primary));
@@ -2100,6 +2108,41 @@ body.light .rb-window {
   font-weight: 600;
 }
 
+.help-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.help-bar .shortcut-section {
+  margin: 0;
+}
+
+.help-filter {
+  margin-left: auto;
+  width: 220px;
+  padding: 4px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.help-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.shortcuts .sc-empty {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 .help-docs {
   margin: 0 12px 0 auto;
   padding: 4px 10px;
@@ -2325,7 +2368,7 @@ kbd {
   outline-offset: 1px;
 }
 
-.hm-row .hm-cell.hm-peak {
+.heatmap:has(.hm-peak-label:hover) .hm-row .hm-cell.hm-peak {
   outline: 2px solid var(--text-primary);
   outline-offset: 1px;
 }

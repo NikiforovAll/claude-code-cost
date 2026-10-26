@@ -726,8 +726,8 @@ function renderOverview() {
       <table class="data-table">
         <thead><tr>
           <th class="${thClass('name')}" onclick="sortBy('name')">Project ${sortArrow('name')}</th>
-          <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
-          <th class="${thClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions ${sortArrow('sessionCount')}</th>
+          <th class="num ${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
+          <th class="num ${thClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions ${sortArrow('sessionCount')}</th>
           <th class="${thClass('lastActive')}" onclick="sortBy('lastActive')">Last Active ${sortArrow('lastActive')}</th>
           <th>Model</th>
         </tr></thead>
@@ -739,7 +739,7 @@ function renderOverview() {
             <tr data-clickable onclick="navigateToSessions('${escAttrJs(p.encodedPath)}', '${escAttrJs(p.name)}')">
               <td>${esc(p.name)}</td>
               <td class="cost-cell">${formatCost(p.totalCost)}</td>
-              <td>${p.sessionCount}</td>
+              <td class="num">${p.sessionCount}</td>
               <td class="muted">${timeAgo(p.lastActive)}</td>
               <td><span class="model-badge">${esc(shortModel(p.primaryModel))}</span></td>
             </tr>`,
@@ -825,7 +825,7 @@ function buildHeatmap(hm, days, today) {
   const peakHour = hourAt(peakCol);
   const foot = `
     <div class="hm-foot">
-      <span>Peak: ${esc(cellDay(peakDay, peakHour))}, ${ampm(peakHour)} · <strong>${formatCost(max)}</strong></span>
+      <span class="hm-peak-label">Peak: ${esc(cellDay(peakDay, peakHour))}, ${ampm(peakHour)} · <strong>${formatCost(max)}</strong></span>
       <span class="hm-legend">$0 ${HEATMAP_SWATCHES} ${formatCost(max)}/h</span>
     </div>`;
   return `<div class="heatmap">${rows}<div class="hm-row"><span class="hm-day"></span>${hours}</div>${foot}</div>`;
@@ -980,7 +980,7 @@ function renderInsights() {
       <div class="section-title">5-Hour Billing Blocks</div>
       <table class="data-table">
         <thead><tr>
-          <th>Block</th><th>Status</th><th>Messages</th><th>Tokens</th><th>Cost</th><th>Models</th>
+          <th>Block</th><th>Status</th><th class="num">Messages</th><th class="num">Tokens</th><th class="num">Cost</th><th>Models</th>
         </tr></thead>
         <tbody>
           ${d.blocks
@@ -989,8 +989,8 @@ function renderInsights() {
             <tr>
               <td>${blockSpanLabel(b)}</td>
               <td>${b.active ? `<span class="block-badge active">ACTIVE &middot; ${formatDuration(b.burn.remainingMin)} left</span>` : `<span class="block-badge">ended ${timeAgo(b.lastActivity)}</span>`}</td>
-              <td>${b.messageCount}</td>
-              <td>${formatTokens(b.tokens)}</td>
+              <td class="num">${b.messageCount}</td>
+              <td class="num">${formatTokens(b.tokens)}</td>
               <td class="cost-cell">${formatCost(b.cost)}</td>
               <td>${b.models.map((m) => `<span class="model-badge">${esc(shortModel(m))}</span>`).join(' ')}</td>
             </tr>`,
@@ -1061,10 +1061,10 @@ function renderSessions() {
       <table class="data-table">
         <thead><tr>
           <th class="${thClass('firstPrompt')}" onclick="sortBy('firstPrompt')">Session ${sortArrow('firstPrompt')}</th>
-          <th class="${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
-          <th class="${thClass('totalTokens')}" onclick="sortBy('totalTokens')">Tokens ${sortArrow('totalTokens')}</th>
-          <th class="${thClass('messageCount')}" onclick="sortBy('messageCount')">Messages ${sortArrow('messageCount')}</th>
-          <th class="${thClass('durationMinutes')}" onclick="sortBy('durationMinutes')">Duration ${sortArrow('durationMinutes')}</th>
+          <th class="num ${thClass('totalCost')}" onclick="sortBy('totalCost')">Cost ${sortArrow('totalCost')}</th>
+          <th class="num ${thClass('totalTokens')}" onclick="sortBy('totalTokens')">Tokens ${sortArrow('totalTokens')}</th>
+          <th class="num ${thClass('messageCount')}" onclick="sortBy('messageCount')">Messages ${sortArrow('messageCount')}</th>
+          <th class="num ${thClass('durationMinutes')}" onclick="sortBy('durationMinutes')">Duration ${sortArrow('durationMinutes')}</th>
           <th>Model</th>
           <th class="${thClass('lastTimestamp')}" onclick="sortBy('lastTimestamp')">Last Active ${sortArrow('lastTimestamp')}</th>
         </tr></thead>
@@ -1076,9 +1076,9 @@ function renderSessions() {
             <tr data-clickable onclick="navigateToDetail('${escAttrJs(s.sessionId)}')">
               <td class="truncate" title="${esc(s.customTitle || s.firstPrompt || s.sessionId)}">${esc(s.customTitle || s.firstPrompt || s.sessionId)}</td>
               <td class="cost-cell">${formatCost(s.totalCost)}</td>
-              <td>${formatTokens(s.totalTokens)}</td>
-              <td>${s.messageCount}${s.compactions?.count ? ` <span class="compaction-tag" title="${esc(`${s.compactions.count} compaction(s), ~${formatCost(s.compactions.totalCost)}`)}">${s.compactions.count}&times; compact</span>` : ''}</td>
-              <td class="muted">${formatDuration(s.durationMinutes)}</td>
+              <td class="num">${formatTokens(s.totalTokens)}</td>
+              <td class="num">${s.compactions?.count ? `<span class="compaction-tag" title="${esc(`${s.compactions.count} compaction(s), ~${formatCost(s.compactions.totalCost)}`)}">${s.compactions.count}&times; compact</span> ` : ''}${s.messageCount}</td>
+              <td class="muted num">${formatDuration(s.durationMinutes)}</td>
               <td><span class="model-badge">${esc(shortModel(s.primaryModel))}</span></td>
               <td class="muted">${timeAgo(s.lastTimestamp)}</td>
             </tr>`,
@@ -1199,15 +1199,15 @@ function renderDetail() {
       <div class="section-title" id="messagesTitle"></div>
       <table class="messages-table">
         <thead><tr>
-          <th>#</th>
+          <th class="num">#</th>
           <th>Time</th>
           <th>Model</th>
-          <th>Input</th>
-          <th>Output</th>
-          <th>Cache Cr.</th>
-          <th>Cache Rd.</th>
-          <th>Cost</th>
-          <th>Cumulative</th>
+          <th class="num">Input</th>
+          <th class="num">Output</th>
+          <th class="num">Cache Cr.</th>
+          <th class="num">Cache Rd.</th>
+          <th class="num">Cost</th>
+          <th class="num">Cumulative</th>
         </tr></thead>
         <tbody id="messagesBody"></tbody>
       </table>
@@ -1283,10 +1283,10 @@ function workflowsSection(d) {
       const mins = Math.round((new Date(w.lastTimestamp) - new Date(w.firstTimestamp)) / 60000);
       return `<tr>
       <td>${esc(w.name)}</td>
-      <td>${w.agents}</td>
-      <td class="muted">${mins} min</td>
-      <td>${formatTokens(w.inputTokens + w.cacheCreationTokens + w.cacheReadTokens)}</td>
-      <td>${formatTokens(w.outputTokens)}</td>
+      <td class="num">${w.agents}</td>
+      <td class="muted num">${mins} min</td>
+      <td class="num">${formatTokens(w.inputTokens + w.cacheCreationTokens + w.cacheReadTokens)}</td>
+      <td class="num">${formatTokens(w.outputTokens)}</td>
       <td class="cost-cell">${formatCost(w.totalCost)}</td>
       <td>${meter(pct, { label: `${pct}%`, ariaLabel: `${pct}% of session cost` })}</td>
     </tr>`;
@@ -1297,11 +1297,11 @@ function workflowsSection(d) {
     <table class="messages-table" style="margin-bottom:20px">
       <thead><tr>
         <th>Workflow</th>
-        <th>Agents</th>
-        <th>Span</th>
-        <th>Input</th>
-        <th>Output</th>
-        <th>Cost</th>
+        <th class="num">Agents</th>
+        <th class="num">Span</th>
+        <th class="num">Input</th>
+        <th class="num">Output</th>
+        <th class="num">Cost</th>
         <th>Share</th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -1335,13 +1335,13 @@ function buildMessageRow(m) {
     ? ` class="subagent-row" data-clickable onclick="navigateToAgent('${escAttrJs(sa.agentId)}')" title="${esc(`${sa.messageCount} turns · open subagent`)}"`
     : '';
   return `<tr${rowAttrs}>
-    <td class="muted">${m.index}</td>
+    <td class="muted num">${m.index}</td>
     <td class="muted">${localTime(m.timestamp)}</td>
     <td>${modelCol}</td>
-    <td>${formatTokens(m.inputTokens)}</td>
-    <td>${formatTokens(m.outputTokens)}</td>
-    <td>${formatTokens(m.cacheCreationTokens)}</td>
-    <td>${formatTokens(m.cacheReadTokens)}</td>
+    <td class="num">${formatTokens(m.inputTokens)}</td>
+    <td class="num">${formatTokens(m.outputTokens)}</td>
+    <td class="num">${formatTokens(m.cacheCreationTokens)}</td>
+    <td class="num">${formatTokens(m.cacheReadTokens)}</td>
     <td class="cost-cell">${formatCost(m.cost)}</td>
     <td class="cumulative">${formatCost(m.cumulativeCost)}</td>
   </tr>`;
@@ -3141,9 +3141,9 @@ function helpKeys(row, mac = IS_MAC, keyLabel = hub.keyLabel) {
 
 // Interleaves each pair's rows left-then-right so CSS grid auto-placement lands
 // them on shared row tracks (see .shortcuts in style.css).
-function buildHelpShortcuts() {
+function buildHelpShortcuts(pairs = SHORTCUT_PAIRS) {
   const cells = [];
-  SHORTCUT_PAIRS.forEach(([left, right = EMPTY_GROUP], pair) => {
+  pairs.forEach(([left, right = EMPTY_GROUP], pair) => {
     const first = pair === 0 ? ' sc-first' : '';
     const sides = [
       [left, 'sc-l'],
@@ -3396,12 +3396,52 @@ function renderLimits() {
   `;
 }
 
-function toggleHelpModal() {
-  const list = document.getElementById('helpShortcuts');
-  if (!list.childElementCount) list.innerHTML = buildHelpShortcuts();
-  list.classList.toggle('sc-standalone', hub.status === 'standalone');
-  document.getElementById('helpModal').classList.toggle('visible');
+// The matching rows of every group, paired again two groups to a row.
+function filteredShortcutPairs(query) {
+  const q = query.toLowerCase();
+  const groups = SHORTCUT_PAIRS.flat()
+    .filter((g) => !g.hub || hub.status !== 'standalone')
+    .map((g) => ({
+      ...g,
+      rows: g.rows.filter((r) => `${r.label} ${helpKeys(r).join(' ')}`.toLowerCase().includes(q)),
+    }))
+    .filter((g) => g.rows.length);
+  const pairs = [];
+  for (let i = 0; i < groups.length; i += 2) pairs.push(groups.slice(i, i + 2));
+  return pairs;
 }
+
+function renderHelpShortcuts() {
+  const list = document.getElementById('helpShortcuts');
+  const query = document.getElementById('helpFilter').value.trim();
+  const pairs = query ? filteredShortcutPairs(query) : SHORTCUT_PAIRS;
+  list.innerHTML = pairs.length
+    ? buildHelpShortcuts(pairs)
+    : `<div class="sc-empty">No shortcut matches "${esc(query)}"</div>`;
+  list.classList.toggle('sc-standalone', hub.status === 'standalone');
+}
+
+function toggleHelpModal() {
+  const modal = document.getElementById('helpModal');
+  const filter = document.getElementById('helpFilter');
+  if (modal.classList.toggle('visible')) {
+    filter.value = '';
+    renderHelpShortcuts();
+    filter.focus();
+  }
+}
+
+document.getElementById('helpFilter').addEventListener('input', renderHelpShortcuts);
+// The page's key handler skips text fields, so the filter handles its own Esc.
+document.getElementById('helpFilter').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.target.value) {
+    e.target.value = '';
+    renderHelpShortcuts();
+  } else toggleHelpModal();
+});
 
 // #endregion
 
