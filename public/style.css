@@ -2325,6 +2325,48 @@ kbd {
   outline-offset: 1px;
 }
 
+.hm-row .hm-cell.hm-peak {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.hm-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hm-foot strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hm-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hm-swatch {
+  position: relative;
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.hm-swatch i {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+}
+
 .hm-tip {
   position: fixed;
   z-index: 100;

@@ -774,6 +774,10 @@ function heatmapDayLabel(dateStr) {
 // early-morning hours.
 const HEATMAP_START_HOUR = 6;
 
+const HEATMAP_SWATCHES = [0, 0.25, 0.5, 0.75, 1]
+  .map((s) => `<span class="hm-swatch"><i style="opacity:${s}"></i></span>`)
+  .join('');
+
 function ampm(h) {
   if (h === 0) return '12am';
   if (h === 12) return '12pm';
@@ -792,6 +796,9 @@ function buildHeatmap(hm, days, today) {
   if (max === 0) return '<div class="empty-state"><div>No activity in this range</div></div>';
   const labels = days.map(heatmapDayLabel);
   const hourAt = (col) => (col + HEATMAP_START_HOUR) % 24;
+  const cellDay = (d, h) => (h < HEATMAP_START_HOUR ? (labels[d + 1] ?? labels[d]) : labels[d]);
+  const peakDay = rowCosts.findIndex((row) => row.includes(max));
+  const peakCol = rowCosts[peakDay].indexOf(max);
   const hours = Array.from(
     { length: 24 },
     (_, col) => `<span class="hm-hour">${hourAt(col) % 3 === 0 ? ampm(hourAt(col)) : ''}</span>`,
@@ -805,8 +812,9 @@ function buildHeatmap(hm, days, today) {
       ${rowCosts[d]
         .map((cost, col) => {
           const h = hourAt(col);
+          const cell = d === peakDay && col === peakCol ? '<span class="hm-cell hm-peak"' : '<span class="hm-cell"';
           return `
-        <span class="hm-cell" data-hm="${h < HEATMAP_START_HOUR ? (labels[d + 1] ?? label) : label}|${h}|${cost}">
+        ${cell} data-hm="${cellDay(d, h)}|${h}|${cost}">
           <i style="opacity:${cost > 0 ? Math.max(0.12, cost / max).toFixed(2) : 0}"></i>
         </span>`;
         })
@@ -814,7 +822,13 @@ function buildHeatmap(hm, days, today) {
     </div>`;
     })
     .join('');
-  return `<div class="heatmap">${rows}<div class="hm-row"><span class="hm-day"></span>${hours}</div></div>`;
+  const peakHour = hourAt(peakCol);
+  const foot = `
+    <div class="hm-foot">
+      <span>Peak: ${esc(cellDay(peakDay, peakHour))}, ${ampm(peakHour)} · <strong>${formatCost(max)}</strong></span>
+      <span class="hm-legend">$0 ${HEATMAP_SWATCHES} ${formatCost(max)}/h</span>
+    </div>`;
+  return `<div class="heatmap">${rows}<div class="hm-row"><span class="hm-day"></span>${hours}</div>${foot}</div>`;
 }
 
 // Shared floating tooltip for heatmap cells — the native title attr is too slow and unstyled.
