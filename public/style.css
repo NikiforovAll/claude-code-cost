@@ -393,7 +393,7 @@ body {
 /* Shared by the Shortcuts header and the From/To field captions. */
 .range-head-label {
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -487,8 +487,8 @@ body {
   background: var(--bg-surface);
   color: var(--text-tertiary);
   border-radius: 4px;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -507,7 +507,7 @@ body {
   height: 9px;
 }
 .range-nav-gap {
-  width: 20px;
+  width: 24px;
 }
 
 .range-dow,
@@ -516,7 +516,7 @@ body {
   grid-template-columns: repeat(7, 1fr);
 }
 .range-dow span {
-  font-size: 9px;
+  font-size: 11px;
   text-align: center;
   color: var(--text-muted);
   letter-spacing: 0.06em;
@@ -537,7 +537,7 @@ body {
 }
 .range-day.off {
   color: var(--text-muted);
-  opacity: 0.4;
+  opacity: 0.75;
   cursor: default;
 }
 .range-day.today::after {
@@ -556,7 +556,7 @@ body {
 }
 .range-day.in {
   background: var(--accent-dim);
-  color: var(--accent-text);
+  color: var(--text-primary);
 }
 .range-day.edge {
   background: var(--accent);
@@ -678,7 +678,7 @@ body {
 }
 
 .stat-card .card-label {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -697,7 +697,7 @@ body {
 }
 
 .stat-card .card-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -791,7 +791,7 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -820,9 +820,10 @@ body {
 }
 
 .share-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .share-cost {
@@ -957,6 +958,13 @@ body {
   color: var(--text-muted);
 }
 
+.rb-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .rb-presets {
   display: flex;
   gap: 4px;
@@ -970,7 +978,8 @@ body {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 8px;
+  min-height: 24px;
+  padding: 2px 10px;
   cursor: pointer;
 }
 
@@ -1038,6 +1047,13 @@ body {
   border-right: 1px solid var(--workflow);
   pointer-events: auto;
   overflow: hidden;
+  container-type: inline-size;
+}
+
+@container (max-width: 72px) {
+  .rb-span i {
+    display: none;
+  }
 }
 
 .rb-span i {
@@ -1212,7 +1228,7 @@ body.light .rb-window {
 .data-table th {
   text-align: left;
   padding: 8px 12px;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -1283,6 +1299,11 @@ body.light .rb-window {
   border: 1px solid var(--border);
 }
 
+.data-table tbody tr:hover .model-badge,
+.data-table tbody tr.kb-selected .model-badge {
+  background: var(--bg-elevated);
+}
+
 /* #endregion */
 
 /* #region BREADCRUMB */
@@ -1313,12 +1334,24 @@ body.light .rb-window {
   color: var(--text-secondary);
 }
 
+.breadcrumb-total {
+  margin-left: 8px;
+  color: var(--text-tertiary);
+}
+
+.breadcrumb-total .cost {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
 /* #endregion */
 
 /* #region DETAIL */
 
 .detail-header {
   display: flex;
+  align-items: first baseline;
   gap: 16px;
   margin-bottom: 20px;
   flex-wrap: wrap;
@@ -1331,7 +1364,7 @@ body.light .rb-window {
 }
 
 .detail-stat .detail-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1344,7 +1377,15 @@ body.light .rb-window {
 }
 
 .detail-stat .detail-value.cost {
+  font-size: 22px;
+  line-height: 1.1;
   color: var(--accent-text);
+}
+
+.detail-stat .detail-value.models {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-tertiary);
 }
 
 /* Rides on .detail-label for the small-muted-caption look; only the offset differs. */
@@ -1382,7 +1423,7 @@ body.light .rb-window {
 .messages-table th {
   text-align: left;
   padding: 6px 10px;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -1408,7 +1449,7 @@ body.light .rb-window {
 
 .compaction-tag {
   text-transform: uppercase;
-  color: var(--compact);
+  color: color-mix(in srgb, var(--compact) 55%, var(--text-primary));
   background: color-mix(in srgb, var(--compact) 14%, transparent);
   white-space: nowrap;
 }
@@ -1429,7 +1470,7 @@ body.light .rb-window {
 .subagent-tag,
 .tool-tag,
 .compaction-tag {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.03em;
   padding: 1px 5px;
   border-radius: 3px;
@@ -1468,10 +1509,11 @@ body.light .rb-window {
   margin-left: 0;
 }
 
+/* Mixed toward --text-primary so the series hue reaches 4.5:1 on its tint in light and dark. */
 .tool-tag {
   text-transform: lowercase;
-  color: var(--chart-2, #60a5fa);
-  background: rgba(96, 165, 250, 0.12);
+  color: color-mix(in srgb, var(--chart-2) 55%, var(--text-primary));
+  background: color-mix(in srgb, var(--chart-2) 12%, transparent);
 }
 
 /* #endregion */
@@ -1953,7 +1995,8 @@ body.light .rb-window {
 }
 
 .seg-btn {
-  padding: 3px 9px;
+  min-height: 24px;
+  padding: 3px 10px;
   border: none;
   border-radius: 4px;
   background: none;

@@ -1031,8 +1031,9 @@ function renderSessions() {
         ${PARENT_BREADCRUMB}
         <span class="sep">/</span>
         <span class="current">${esc(currentProjectName || 'Project')}</span>
+        <span class="breadcrumb-total"><span class="cost">${formatCost(sessionsData.reduce((s, x) => s + x.totalCost, 0))}</span> · ${sessionsData.length} sessions</span>
       </div>
-      <div class="charts-row" style="grid-template-columns:3fr 2fr auto">
+      <div class="charts-row" style="grid-template-columns:3fr 2fr">
         <div class="chart-box">
           <div class="chart-title">${costSeriesTitle(sessionsCostSeries)}</div>
           <canvas id="sessionsCostChart"></canvas>
@@ -1040,11 +1041,6 @@ function renderSessions() {
         <div class="chart-box">
           <div class="chart-title">Cost by Model</div>
           <canvas id="sessionsModelChart"></canvas>
-        </div>
-        <div class="chart-box" style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:120px">
-          <div class="chart-title">Total Cost</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)">${formatCost(sessionsData.reduce((s, x) => s + x.totalCost, 0))}</div>
-          <div style="color:var(--text-tertiary);font-size:12px;margin-top:4px">${sessionsData.length} sessions</div>
         </div>
       </div>
 
@@ -1148,7 +1144,7 @@ function renderDetail() {
         </div>
         <div class="detail-stat">
           <div class="detail-label">Models</div>
-          <div class="detail-value">${esc(d.models.map((m) => shortModel(m)).join(', '))}</div>
+          <div class="detail-value models">${esc(d.models.map((m) => shortModel(m)).join(', '))}</div>
         </div>
         ${compactionStat(d.compactions)}
       </div>
@@ -1384,6 +1380,7 @@ function messageTooltipTitle(messages, items) {
 
 // Takes the palette the caller already read, so a chart costs one getComputedStyle, not two.
 function chartDefaults(c = getChartColors()) {
+  Chart.defaults.font.family = c.mono;
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -1409,11 +1406,11 @@ function chartDefaults(c = getChartColors()) {
     },
     scales: {
       x: {
-        ticks: { color: c.text, font: { size: 10 } },
+        ticks: { color: c.text, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 },
         grid: { color: c.border, drawBorder: false },
       },
       y: {
-        ticks: { color: c.text, font: { size: 10 } },
+        ticks: { color: c.text, font: { size: 11 } },
         grid: { color: c.border, drawBorder: false },
       },
     },
@@ -1529,7 +1526,7 @@ function renderCostChart(series, canvasId = 'costChart', chartKey = 'cost', dist
         legend: {
           display: models.length > 1,
           position: 'bottom',
-          labels: { color: c.text, font: { size: 9 }, boxWidth: 8, boxHeight: 8 },
+          labels: { color: c.text, font: { size: 11 }, boxWidth: 8, boxHeight: 8 },
         },
       },
       scales: {
@@ -1684,7 +1681,7 @@ function renderCumulativeChart(messages) {
         ...defaults.scales,
         x: {
           ...defaults.scales.x,
-          title: { display: true, text: 'Message #', color: c.text, font: { size: 10 } },
+          title: { display: true, text: 'Message #', color: c.text, font: { size: 11 } },
         },
         y: {
           ...defaults.scales.y,
@@ -1962,6 +1959,7 @@ function rangeBrushHtml(total) {
       <div class="range-brush" id="rangeBrush">
         <div class="rb-head">
           <span class="rb-label"><span class="rb-scope"></span><span class="rb-burst-count" hidden><i></i></span></span>
+          <span class="rb-hint">Drag the window or use ← → to pick messages</span>
           <div class="rb-presets" role="group" aria-label="Window size">
             ${presets}
             <button type="button" class="rb-preset" data-size="all">All</button>
