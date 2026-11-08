@@ -1,4 +1,4 @@
-// claude-hub-sdk 1.9.0 (sha256 537745aa3415). Copied by npm run sdk:sync in claude-code-hub. Do not edit.
+// claude-hub-sdk 1.12.0 (sha256 6fb679e4d801). Copied by npm run sdk:sync in claude-code-hub. Do not edit.
 // Claude Code Hub SDK: the one rule that names a key press, shared by the hub page, client.js and
 // stub.js. The hub serves it to its page as /sdk/keys.js; mount() and sdk:sync put it in front of
 // client.js and stub.js, so an app still loads one file.
@@ -10,17 +10,60 @@ var ClaudeHubKeys = (() => {
   // Modifiers in ctrl, alt, shift, meta order, joined by '+' to the key. macOS composes
   // Option+<key> into a character (Option+1 is '¡', Option+P is 'π') and holding Control does not
   // undo it, so e.key alone cannot name these presses there. e.code is the physical key, which is
-  // wrong for non-US layouts, hence only as a fallback. No fallback under AltGraph: Chromium sets it
-  // when AltGr types a character, and that press is text. Takes a real KeyboardEvent or a forwarded
-  // {key, code} payload; a payload without code degrades to key. A payload needs no AltGraph: the
-  // SDK forwards only a press whose key already names a bound combo.
-  // Self-contained on purpose: cck puts its source text into a sandboxed frame.
+  // wrong for non-US layouts, hence only as a fallback. A letter or punctuation key falls back to its
+  // US character only when e.key is not ASCII (a non-Latin layout, or Option on macOS), so AZERTY's
+  // ',' on the M key stays ','. The digit row always falls back, so AZERTY's '&' key is 1, as Windows
+  // and VS Code treat it. No fallback under AltGraph: Chromium sets it when AltGr types a character, and that
+  // press is text. Takes a real KeyboardEvent or a forwarded {key, code} payload; a payload without
+  // code degrades to key. A payload needs no AltGraph: the SDK forwards only a press whose key
+  // already names a bound combo.
+  // Self-contained on purpose, the table too: cck puts its source text into a sandboxed frame.
+  // codeOf() lists the same keys the other way round.
   function comboOf(e) {
-    const lower = typeof e.key === 'string' ? e.key.toLowerCase() : '';
-    const m = !e.getModifierState?.('AltGraph') && /^(?:Key|Digit)([A-Z1-9])$/.exec(e.code || '');
-    const key = /^[a-z1-9]$/.test(lower) ? lower : m ? m[1].toLowerCase() : e.key === ' ' ? 'Space' : e.key;
+    const raw = typeof e.key === 'string' ? e.key : '';
+    const lower = raw.toLowerCase();
+    const code = e.getModifierState?.('AltGraph') ? '' : e.code || '';
+    const latin = !/[^\x20-\x7e]/.test(raw);
+    const digit = /^Digit([0-9])$/.exec(code)?.[1];
+    const us =
+      !latin &&
+      (/^Key([A-Z])$/.exec(code)?.[1].toLowerCase() ||
+        {
+          Minus: '-',
+          Equal: '=',
+          BracketLeft: '[',
+          BracketRight: ']',
+          Backslash: '\\',
+          Semicolon: ';',
+          Quote: "'",
+          Backquote: '`',
+          Comma: ',',
+          Period: '.',
+          Slash: '/',
+        }[code]);
+    const key = /^[a-z0-9]$/.test(lower) ? lower : digit || us || (e.key === ' ' ? 'Space' : e.key);
     const mods = [e.ctrlKey && 'ctrl', e.altKey && 'alt', e.shiftKey && 'shift', e.metaKey && 'meta'];
     return [...mods, key].filter(Boolean).join('+');
+  }
+
+  // The physical key (e.code) that types a combo's key on a US layout, or null for a named key.
+  function codeOf(key) {
+    if (/^[a-z]$/.test(key)) return `Key${key.toUpperCase()}`;
+    if (/^[0-9]$/.test(key)) return `Digit${key}`;
+    const codes = {
+      '-': 'Minus',
+      '=': 'Equal',
+      '[': 'BracketLeft',
+      ']': 'BracketRight',
+      '\\': 'Backslash',
+      ';': 'Semicolon',
+      "'": 'Quote',
+      '`': 'Backquote',
+      ',': 'Comma',
+      '.': 'Period',
+      '/': 'Slash',
+    };
+    return codes[key] ?? null;
   }
 
   // The keys of a combo as a help row shows them: ['Ctrl', 'Alt', 'P'], or ['⌃', '⌥', 'P'] on macOS.
@@ -47,10 +90,139 @@ var ClaudeHubKeys = (() => {
     ].filter(Boolean);
   }
 
-  return { comboOf, keyParts, keySigs };
+  return { comboOf, codeOf, keyParts, keySigs };
 })();
 
 if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys;
+
+// Claude Code Hub SDK: the runtime of hub mods, shared by client.js and the hub page. mount() and
+// sdk:sync put it in front of client.js; the hub page gets it inside /mods/hub.js.
+// var, not const: the hub page and an app page each load it as a classic script.
+var ClaudeHubModKit = (() => {
+  'use strict';
+
+  // "<mod id>:<name>". The id must be an installed mod's, so two mods cannot share a topic.
+  const TOPIC_RE = /^([a-z0-9-]+):[\w.-]+$/;
+
+  // The page's mod list is in win.ClaudeHubMods, ahead of this file. Each CSS file loads after the
+  // page's own styles; each JS file is a deferred script, so it runs after a deferred app.js, in
+  // list order. ?nomods in the page URL loads none: the safe mode for a mod that breaks the page.
+  function createMods(win) {
+    const doc = win.document;
+    const off = /[?&]nomods(?:[=&]|$)/.test(win.location?.search ?? '');
+    // Only an app's own tab, or the page on its own. A page nested in an app's page (cck's terminal,
+    // a pane) is not what the mod was written for, and ?nomods reaches only the tabs.
+    const nested = win.parent !== win.top;
+    const assets = off || nested ? null : win.ClaudeHubMods;
+    const list = assets?.mods ?? [];
+    const ids = new Set(list.map((m) => m.id));
+    const listeners = new Map();
+    const wrappedNames = new Set();
+    const outbox = new Map();
+    let sender = null;
+    const report = (what, err) => win.console?.error?.(`[hub mod] ${what}:`, err);
+
+    function load() {
+      if (!assets || !doc) return;
+      const js = assets.js ?? [];
+      // Mod code runs with the page's rights. connect-src stops fetch, XHR, WebSocket and beacons to
+      // other hosts; it does not stop image or script loads or navigation, so it guards against a
+      // careless mod, not a hostile one. Consent at install is the real boundary. A wider policy
+      // (script-src, img-src) would break the apps' own inline scripts and remote images.
+      if (js.length) {
+        doc.head.appendChild(
+          Object.assign(doc.createElement('meta'), {
+            httpEquiv: 'Content-Security-Policy',
+            content: "connect-src 'self'",
+          }),
+        );
+      }
+      const tags = [
+        ...(assets.css ?? []).map((href) => Object.assign(doc.createElement('link'), { rel: 'stylesheet', href })),
+        ...js.map((src) => Object.assign(doc.createElement('script'), { src, defer: true })),
+      ];
+      // document.write keeps a parser-inserted script deferred and in order; appendChild needs async off for that.
+      if (!tags.length) return;
+      if (doc.readyState === 'loading') doc.write(tags.map((t) => t.outerHTML).join(''));
+      else
+        for (const t of tags) {
+          if (t.tagName === 'SCRIPT') t.async = false;
+          (t.tagName === 'LINK' ? doc.head : doc.body).appendChild(t);
+        }
+    }
+
+    // fn(original, ...args). When fn throws, the wrapper returns what original returned, and runs
+    // original first if fn had not called it yet, so a broken mod leaves the app as it was.
+    function wrap(name, fn) {
+      const original = win[name];
+      if (typeof original !== 'function') {
+        report(`wrap(${name})`, new Error('the app has no such global function'));
+        return false;
+      }
+      if (wrappedNames.has(name))
+        win.console?.warn?.(`[hub mod] wrap(${name}): two mods wrap it; the later one runs outside the earlier`);
+      wrappedNames.add(name);
+      win[name] = function wrapped(...args) {
+        let called = false;
+        let result;
+        const next = (...a) => {
+          called = true;
+          result = original.apply(this, a.length ? a : args);
+          return result;
+        };
+        try {
+          return fn.call(this, next, ...args);
+        } catch (err) {
+          report(`wrap(${name})`, err);
+          return called ? result : original.apply(this, args);
+        }
+      };
+      return true;
+    }
+
+    function on(event, fn) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event).add(fn);
+      return () => listeners.get(event)?.delete(fn);
+    }
+
+    function emit(event, detail) {
+      for (const fn of listeners.get(event) ?? []) {
+        try {
+          fn(detail);
+        } catch (err) {
+          report(`on(${event})`, err);
+        }
+      }
+    }
+
+    // To the same mod's code on the hub page, as mod.on(topic) there with {app, data}. Before the
+    // hub answers, only the latest data per topic waits.
+    function send(topic, data) {
+      const m = TOPIC_RE.exec(typeof topic === 'string' ? topic : '');
+      if (!m || !ids.has(m[1])) {
+        report(`send(${topic})`, new Error('the topic must be "<mod id>:<name>", with the id of an installed mod'));
+        return false;
+      }
+      if (sender) sender({ type: 'hub:mod', topic, data });
+      else outbox.set(topic, data);
+      return true;
+    }
+
+    function connectSender(fn) {
+      sender = fn;
+      for (const [topic, data] of outbox) fn({ type: 'hub:mod', topic, data });
+      outbox.clear();
+    }
+
+    load();
+    return { mod: { list, wrap, on, emit, send }, connectSender };
+  }
+
+  return { createMods, TOPIC_RE };
+})();
+
+if (typeof module === 'object' && module.exports) module.exports = ClaudeHubModKit;
 
 // Claude Code Hub SDK: the app side of the hub protocol v1.
 // A classic script. Load it as the first element in <body>, with no defer or async,
@@ -68,6 +240,7 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
 
   // keys.js comes first in the served file. Required as a module, client.js loads it itself.
   const { comboOf, keyParts, keySigs } = typeof ClaudeHubKeys === 'object' ? ClaudeHubKeys : require('./keys');
+  const { createMods } = typeof ClaudeHubModKit === 'object' ? ClaudeHubModKit : require('./mods');
 
   function isVars(v) {
     return (
@@ -95,11 +268,24 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
         : [],
     );
 
+  // The page's light or dark, for mod CSS: [data-hub-mode="light"]. Cached so it is set before the hub answers.
+  const MODE_KEY = 'claude-hub:mode';
+
   function createClaudeHub(win) {
     const doc = win.document;
     const framed = win.top !== win;
     let appliedVars = null;
     let hub = null;
+    const mods = createMods(win);
+    const { mod } = mods;
+
+    function setMode(mode) {
+      if (mode !== 'light' && mode !== 'dark') return;
+      if (doc.documentElement) doc.documentElement.dataset.hubMode = mode;
+      try {
+        win.localStorage.setItem(MODE_KEY, mode);
+      } catch (_) {}
+    }
 
     function setVars(vars) {
       const body = doc.body;
@@ -136,6 +322,9 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
     if (framed) {
       const cache = readCache();
       if (cache && hubOnTop(cache.origin)) setVars(cache.vars);
+      try {
+        setMode(win.localStorage.getItem(MODE_KEY));
+      } catch (_) {}
     }
 
     function connect({ standalone = {} } = {}) {
@@ -148,6 +337,7 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
       const tokenWaiters = new Set();
       const themesFns = new Set();
       const settingsFns = new Set();
+      const keysFns = new Set();
       const queued = [];
       // Topic → payload: the latest publish before welcome.
       const outbox = new Map();
@@ -205,6 +395,7 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
         if (isVars(p.vars)) adoptVars(p.vars, origin);
         else if (!waiting()) adoptVars(null);
         lastTheme = p;
+        setMode(p.theme);
         applyMode(p);
         emit('theme.changed', p);
       }
@@ -242,6 +433,11 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
           actions: strings(m.actions),
           keys: comboMap(m.keys),
           themes: Array.isArray(m.themes) ? m.themes : [],
+          voice: Array.isArray(m.voice)
+            ? m.voice
+                .filter((c) => typeof c?.say === 'string' && typeof c?.help === 'string')
+                .map(({ say, help }) => ({ say, help }))
+            : [],
         };
         forward = strings(m.forward);
         appOrigins = strings(m.origins);
@@ -283,6 +479,12 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
             return;
           case 'hub:settings':
             if (welcome) setSettings(m.settings);
+            return;
+          case 'hub:keys':
+            if (!welcome) return;
+            welcome.keys = comboMap(m.keys);
+            forward = strings(m.forward);
+            for (const fn of keysFns) fn();
             return;
         }
       }
@@ -405,6 +607,7 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
       Promise.all([config, loaded]).then(() => {
         if (!origin) return;
         post({ type: 'hub:hello', protocol: [1], subscribes: [...topics.keys()] });
+        mods.connectSender(post);
         setStatus('waiting');
         // A hub older than protocol v1 never answers. The app then runs as if alone, with no hub calls.
         win.setTimeout(() => {
@@ -502,6 +705,12 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
         forwards,
         // The combos forwards() matches, for a frame that tests keys with ClaudeHub.comboOf on its own.
         forwardCombos: () => (forward ? [...forward] : []),
+        // Calls fn after the user changes the hub's keys, so a page that copied forwardCombos() or
+        // shows keyLabel() can read them again.
+        onKeys(fn) {
+          keysFns.add(fn);
+          return () => keysFns.delete(fn);
+        },
         // The keys of a hub action for a help row, in this system's names. A list of actions shares one
         // row: ['Ctrl', 'Alt', '←/→']. [] when no key runs them; null before welcome, standalone, or
         // for an action the hub did not list.
@@ -517,6 +726,8 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
           while (n < all[0].length - 1 && all.every((p) => p.length - 1 > n && p[n] === all[0][n])) n++;
           return [...all[0].slice(0, n), all.map((p) => p.slice(n).join('+')).join('/')];
         },
+        // The voice commands this app handles, [{say, help}], for its help. [] with voice off, before welcome, or standalone.
+        voiceCommands: () => (welcome ? welcome.voice.map((c) => ({ ...c })) : []),
         closeGuard(on) {
           post({ type: 'hub:closeGuard', on: !!on });
         },
@@ -547,7 +758,7 @@ if (typeof module === 'object' && module.exports) module.exports = ClaudeHubKeys
       return hub;
     }
 
-    return { connect, comboOf };
+    return { connect, comboOf, mod };
   }
 
   if (typeof module === 'object' && module.exports) module.exports = { createClaudeHub, comboOf };
