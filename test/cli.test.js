@@ -78,10 +78,10 @@ describe('resolveWindow', () => {
     assert.equal(w.query, 'from=2026-01-01&to=2026-01-10');
   });
 
-  it('fails on half a pair, a bad date or more than a year', () => {
+  it('fails on half a pair or a bad date; a window can pass a year', () => {
     assert.throws(() => windowOf({ from: '2026-01-01' }), /pair/);
     assert.throws(() => windowOf({ from: '2026-02-30', to: '2026-03-01' }), /pair/);
-    assert.throws(() => windowOf({ from: '2024-01-01', to: '2025-06-01' }), /365 days/);
+    assert.equal(windowOf({ from: '2024-01-01', to: '2025-06-01' }).w.days, 518);
   });
 });
 
@@ -160,5 +160,41 @@ describe('parseArgs and isCommand', () => {
   it('knows its commands and leaves server flags alone', () => {
     for (const c of ['overview', 'session', 'help', '--help']) assert.ok(isCommand(c), c);
     for (const c of [undefined, '--port', '--open', 'serve']) assert.ok(!isCommand(c), String(c));
+  });
+});
+
+describe('months and years in --range, --from and --to', () => {
+  const now = new Date(2026, 10, 17, 15); // 2026-11-17
+  const win = (flags, env = {}) => resolveWindow(flags, { claudeDir: configDir(), parseCustomRange, env, warn() {}, now });
+
+  it('--range month and year run to today', () => {
+    const m = win({ range: 'month' });
+    assert.deepEqual(m.range, { from: '2026-11-01', to: '2026-11-17' });
+    assert.equal(m.days, 17);
+    assert.equal(m.query, 'from=2026-11-01&to=2026-11-17');
+    assert.deepEqual(win({ range: 'year' }).range, { from: '2026-01-01', to: '2026-11-17' });
+  });
+  it('--range YYYY-MM and YYYY are whole units', () => {
+    assert.deepEqual(win({ range: '2024-02' }).range, { from: '2024-02-01', to: '2024-02-29' });
+    assert.equal(win({ range: '2026-09' }).days, 30);
+    assert.deepEqual(win({ range: '2025' }).range, { from: '2025-01-01', to: '2025-12-31' });
+    assert.equal(win({ range: '2025' }).days, 365);
+    assert.deepEqual(win({ range: '2026-11' }).range, { from: '2026-11-01', to: '2026-11-17' });
+  });
+  it('--from and --to take years and months, past a year long', () => {
+    assert.deepEqual(win({ from: '2025', to: '2026' }).range, { from: '2025-01-01', to: '2026-11-17' });
+    assert.deepEqual(win({ from: '2026-09', to: '2026-11' }).range, { from: '2026-09-01', to: '2026-11-17' });
+    assert.deepEqual(win({ from: '2026-02', to: '2026-02' }).range, { from: '2026-02-01', to: '2026-02-28' });
+    assert.deepEqual(win({ from: '2026-09', to: '2026-10-15' }).range, { from: '2026-09-01', to: '2026-10-15' });
+    assert.deepEqual(win({ from: '2026-11', to: '2026-09' }).range, { from: '2026-09-01', to: '2026-11-17' });
+  });
+  it('rejects bad, future and lone values', () => {
+    assert.throws(() => win({ range: '2026-13' }), /use today/);
+    assert.throws(() => win({ range: '2027' }), /has not started/);
+    assert.throws(() => win({ from: '2026-13', to: '2026-12' }), /come as a pair/);
+    assert.throws(() => win({ from: '2025' }), /come as a pair/);
+  });
+  it('env and config accept them too', () => {
+    assert.deepEqual(win({}, { CLAUDE_COST_RANGE: '2026-09' }).range, { from: '2026-09-01', to: '2026-09-30' });
   });
 });

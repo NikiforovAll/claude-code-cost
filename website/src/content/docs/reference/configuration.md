@@ -76,7 +76,7 @@ claude-code-cost session d3a7c2e1-5b4f-4c8e-9a12-6f0e8b7d4c31 --json
 
 The window comes from the first of these that is set:
 
-1. `--range` (`today`, `24h`, or `<n>d` up to `365d`), or `--from` and `--to` (`YYYY-MM-DD`, at most 365 days).
+1. `--range` (`today`, `24h`, `<n>d` up to `365d`, `month`, `year`, `YYYY-MM` or `YYYY`), or `--from` and `--to` (`YYYY-MM-DD`, `YYYY-MM` or `YYYY`, with no length limit).
 2. The `CLAUDE_COST_RANGE` environment variable.
 3. `cli.defaultRange` in `<config dir>/.cost/config.json`, for example `{"cli": {"defaultRange": "30d"}}`.
 4. `7d`.

@@ -620,6 +620,84 @@ body {
   filter: none;
 }
 
+/* Period | Month | Year switch above the calendar; month and year modes swap the day grid for twelve
+   cells and drop the From/To fields. Cells pick a span the way days do, then Apply. */
+.range-mode {
+  display: inline-flex;
+  margin: 0 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.range-mode-btn {
+  border: 0;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.range-mode-btn + .range-mode-btn {
+  border-left: 1px solid var(--border);
+}
+.range-mode-btn:hover {
+  color: var(--text-primary);
+}
+.range-mode-btn[aria-pressed='true'] {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+
+.range-pop.unit-mode .range-fields {
+  display: none;
+}
+.range-years {
+  width: 100%;
+  min-width: 196px;
+}
+.range-month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.range-month {
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  position: relative;
+}
+.range-month:hover:not(.off) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.range-month.today {
+  color: var(--accent-text);
+}
+.range-month.in {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+.range-month.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+.range-month.off {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* #endregion */
 
 /* #region LAYOUT */

@@ -53,6 +53,11 @@
           <div class="range-head-label">Shortcuts</div>
         </div>
         <div class="range-cal-side">
+          <div class="range-mode" id="rangeMode" role="group" aria-label="Pick by">
+            <button class="range-mode-btn" data-mode="period" aria-pressed="true" onclick="setRangeMode('period')">Days</button>
+            <button class="range-mode-btn" data-mode="month" aria-pressed="false" onclick="setRangeMode('month')">Months</button>
+            <button class="range-mode-btn" data-mode="year" aria-pressed="false" onclick="setRangeMode('year')">Years</button>
+          </div>
           <div class="range-fields">
             <div class="range-field">
               <span class="range-head-label">From</span>
