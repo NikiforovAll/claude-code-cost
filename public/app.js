@@ -355,8 +355,53 @@ function normalizeRange(r) {
   return Number.isFinite(n) && n > 0 ? presetRange(n) : null;
 }
 
-// "AUG 1 - AUG 12"; a single-day window is just "AUG 12".
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// The month at (y, m0) as a window: its 1st to its last day, or to today while it is still running.
+function monthSpan(y, m0) {
+  const last = isoDate(new Date(y, m0 + 1, 0));
+  const today = todayIso();
+  return { from: isoDate(new Date(y, m0, 1)), to: last > today ? today : last };
+}
+
+function monthToDate() {
+  const now = new Date();
+  return monthSpan(now.getFullYear(), now.getMonth());
+}
+
+// Jan 1 to Dec 31 of `y`, or to today while the year is still running.
+function yearSpan(y) {
+  const today = todayIso();
+  const last = `${y}-12-31`;
+  return { from: `${y}-01-01`, to: last > today ? today : last };
+}
+
+// What whole calendar units [from, to] covers, or null for any other window: whole months
+// ({unit:'month', a:'2026-09', b:'2026-11'}) or whole years ({unit:'year', a:2025, b:2026}). The
+// running month or year counts as whole when it ends today. Names a window "NOVEMBER 2026" or
+// "2025" instead of by its two dates, and picks the picker's mode on open.
+function periodOf(from, to) {
+  if (from === to) return null;
+  const [fy, fm, fd] = isoParts(from);
+  const [ty, tm] = isoParts(to);
+  if (fd !== 1 || monthSpan(ty, tm - 1).to !== to) return null;
+  const now = new Date();
+  const running = ty === now.getFullYear() && tm - 1 === now.getMonth();
+  if (fm === 1 && (tm === 12 || running)) return { unit: 'year', a: fy, b: ty };
+  return { unit: 'month', a: `${fy}-${pad2(fm)}`, b: `${ty}-${pad2(tm)}` };
+}
+
+function monthLabel(ym, style = 'long') {
+  const [y, m] = isoParts(`${ym}-01`);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: style, year: 'numeric' }).toUpperCase();
+}
+
+// "AUG 1 - AUG 12"; a single-day window is just "AUG 12"; whole units are "AUGUST 2026",
+// "SEP 2026 - NOV 2026", "2025" or "2024 - 2025".
 function rangeSpanLabel(r) {
+  const p = periodOf(r.from, r.to);
+  if (p?.unit === 'year') return p.a === p.b ? String(p.a) : `${p.a} - ${p.b}`;
+  if (p) return p.a === p.b ? monthLabel(p.a) : `${monthLabel(p.a, 'short')} - ${monthLabel(p.b, 'short')}`;
   return r.from === r.to ? isoDayLabel(r.to) : `${isoDayLabel(r.from)} - ${isoDayLabel(r.to)}`;
 }
 
@@ -367,7 +412,15 @@ function rangeSpanLabel(r) {
 // pluralized as days, and the empty-state article only fits the rolling presets.
 function rangeText(r, prefix = {}) {
   const n = normalizeRange(r);
-  const kind = !n ? 'all' : n.kind === 'custom' ? 'custom' : n.value === 'today' ? 'today' : 'rolling';
+  const kind = !n
+    ? 'all'
+    : n.kind === 'custom'
+      ? 'custom'
+      : n.value === 'today'
+        ? 'today'
+        : n.value === 'month' || n.value === 'year'
+          ? 'month'
+          : 'rolling';
   const base =
     kind === 'all'
       ? 'all time'
@@ -375,15 +428,17 @@ function rangeText(r, prefix = {}) {
         ? rangeSpanLabel(n)
         : kind === 'today'
           ? 'today'
-          : n.value === '24h'
-            ? '24 hours'
-            : `${n.value} days`;
+          : kind === 'month'
+            ? `this ${n.value}`
+            : n.value === '24h'
+              ? '24 hours'
+              : `${n.value} days`;
   return (prefix[kind] || '') + base;
 }
 
 const rangeLabel = (r) => rangeText(r);
 const rangeScopeLabel = (r) => rangeText(r, { rolling: 'last ' });
-const rangeInLabel = (r) => rangeText(r, { all: 'in ', custom: 'in ', rolling: 'in the last ' });
+const rangeInLabel = (r) => rangeText(r, { all: 'in ', custom: 'in ', month: 'in ', rolling: 'in the last ' });
 
 // Uppercase, for the picker trigger: the preset's own name, or the window's dates.
 const rangeTriggerLabel = (r) => {
@@ -408,7 +463,11 @@ const rangeCardLabel = (r) => {
 function isTodayOnlyRange(r) {
   const n = normalizeRange(r);
   if (!n) return false;
-  return n.kind === 'custom' ? n.from === n.to && n.to === todayIso() : n.value === 'today';
+  if (n.kind === 'custom') return n.from === n.to && n.to === todayIso();
+  const t = todayIso();
+  return (
+    n.value === 'today' || (n.value === 'month' && t.endsWith('-01')) || (n.value === 'year' && t.endsWith('-01-01'))
+  );
 }
 
 function loadSort() {
@@ -536,9 +595,16 @@ function scopeParam() {
 }
 
 // Presets stay on the rolling `range` param, recomputed server-side; a custom window sends its two
-// local dates, which take precedence over `range`. Every range-consuming fetch goes through this.
+// local dates, which take precedence over `range`. 'month' and 'year' are the presets resolved here, into
+// the dates of the current month or year so far, so it rolls over on the 1st. Every range-consuming fetch goes
+// through this.
 function rangeParams(r = dateRange) {
-  return isCustomRange(r) ? `from=${r.from}&to=${r.to}` : `range=${encodeURIComponent(r.value)}`;
+  if (isCustomRange(r)) return `from=${r.from}&to=${r.to}`;
+  if (r.value === 'month' || r.value === 'year') {
+    const { from, to } = rangePresetSpan(r.value);
+    return `from=${from}&to=${to}`;
+  }
+  return `range=${encodeURIComponent(r.value)}`;
 }
 
 async function fetchOverview() {
@@ -2378,8 +2444,12 @@ const RANGE_PRESETS = [
   { value: '3', label: '3 Days', days: 3 },
   { value: '7', label: '7 Days', days: 7 },
   { value: '30', label: '30 Days', days: 30 },
+  // Calendar month to date. Sticky like the rolling presets, but resolved here (see monthToDate): the
+  // server has no such preset and only ever sees its two dates.
+  { value: 'month', label: 'This Month', cardLabel: 'This Month', days: 0 },
   { value: '90', label: '90 Days', days: 90 },
   { value: '365', label: '1 Year', days: 365, cardLabel: '365 Days' },
+  { value: 'year', label: 'This Year', cardLabel: 'This Year', days: 0 },
 ];
 const RANGE_DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 // Two months do not fit a narrow window, so below this the calendar collapses to one. Kept in step
@@ -2412,6 +2482,8 @@ function oneMonthMode() {
 function rangePresetSpan(value) {
   const today = todayIso();
   if (value === '24h') return { from: isoShift(today, -1), to: today };
+  if (value === 'month') return monthToDate();
+  if (value === 'year') return yearSpan(new Date().getFullYear());
   const days = Number(value) || 1;
   return { from: days <= 1 ? today : isoShift(today, -(days - 1)), to: today };
 }
@@ -2453,6 +2525,14 @@ function openRangePicker() {
   // single month it is that month itself.
   const [ay, am] = isoParts(span.to);
   const first = new Date(ay, am - 1 - (oneMonthMode() ? 0 : 1), 1);
+  // A window that is whole months or whole years opens on that grid, so it shows what is picked.
+  const period =
+    applied.kind === 'preset' && applied.value === 'month'
+      ? { unit: 'month', a: span.from.slice(0, 7), b: span.to.slice(0, 7) }
+      : applied.kind === 'preset' && applied.value === 'year'
+        ? { unit: 'year', a: ay, b: ay }
+        : periodOf(span.from, span.to);
+  const thisYear = new Date().getFullYear();
   rangeDraft = {
     from: span.from,
     to: span.to,
@@ -2460,6 +2540,11 @@ function openRangePicker() {
     picking: 'from',
     hover: null,
     month: { y: first.getFullYear(), m: first.getMonth() },
+    mode: period ? period.unit : 'period',
+    // The month grid's year, and the last year of the year grid's page.
+    year: period?.unit === 'month' ? Number(period.a.slice(0, 4)) : ay,
+    yearEnd: period?.unit === 'year' ? Math.min(Math.max(period.b, period.a + 11), thisYear) : thisYear,
+    sel: period ? { unit: period.unit, a: String(period.a), b: String(period.b) } : { unit: null, a: null, b: null },
   };
   document.getElementById('rangePop').classList.add('open');
   document.getElementById('rangeTrigger').classList.add('on');
@@ -2489,8 +2574,116 @@ function closeRangePicker() {
 // selectable days carry data-iso, so the lead padding and the days after today stay inert. It has to
 // be 'mouseover' — 'mouseenter' does not bubble, so it cannot be delegated.
 function onRangeDayClick(e) {
-  const iso = e.target.dataset?.iso;
-  if (iso) pickRangeDay(iso);
+  const { month, year, iso } = e.target.dataset || {};
+  if (month) pickRangeUnit('month', month);
+  else if (year) pickRangeUnit('year', year);
+  else if (iso) pickRangeDay(iso);
+}
+
+// Months and years pick a span the way days do: the first click is the start, the second the end (a
+// click before the start swaps them), and a third starts over. One click and Apply is a single unit.
+function pickRangeUnit(unit, value) {
+  const d = rangeDraft;
+  const s = d.sel;
+  d.preset = null;
+  if (s.unit !== unit || !s.a || s.b) d.sel = { unit, a: value, b: null };
+  else d.sel = value < s.a ? { unit, a: value, b: s.a } : { unit, a: s.a, b: value };
+  renderRangePicker();
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: called from popover markup
+function setRangeMode(mode) {
+  const d = rangeDraft;
+  if (!d || d.mode === mode) return;
+  d.mode = mode;
+  if (mode !== 'period' && d.sel.unit !== mode) d.sel = { unit: mode, a: null, b: null };
+  renderRangePicker();
+}
+
+// What the month or year selection applies. The running month or year is the sticky preset, so it
+// keeps following the calendar; any other span is a plain custom window.
+function selectionRange(sel) {
+  const now = new Date();
+  const b = sel.b || sel.a;
+  if (sel.unit === 'year') {
+    if (sel.a === b && Number(b) === now.getFullYear()) return presetRange('year');
+    return { kind: 'custom', from: yearSpan(Number(sel.a)).from, to: yearSpan(Number(b)).to };
+  }
+  const [ay, am] = isoParts(`${sel.a}-01`);
+  const [by, bm] = isoParts(`${b}-01`);
+  if (sel.a === b && ay === now.getFullYear() && am - 1 === now.getMonth()) return presetRange('month');
+  return { kind: 'custom', from: monthSpan(ay, am - 1).from, to: monthSpan(by, bm - 1).to };
+}
+
+function unitIndex(value, mode) {
+  if (mode === 'year') return Number(value);
+  const [y, m] = isoParts(`${value}-01`);
+  return y * 12 + m - 1;
+}
+
+function rangeGridStep(step) {
+  const d = rangeDraft;
+  if (d.mode === 'year') d.yearEnd += step * 12;
+  else d.year += step;
+  renderRangePicker();
+}
+
+// The month grid (one year, with year arrows) or the year grid (twelve years, paged). Both are
+// 3 x 4 cells that carry data-month / data-year for the delegated click.
+function renderRangeUnits(host) {
+  const d = rangeDraft;
+  const now = new Date();
+  const isYear = d.mode === 'year';
+  const first = d.yearEnd - 11;
+  const wrap = document.createElement('div');
+  wrap.className = 'range-cal range-years';
+
+  const head = document.createElement('div');
+  head.className = 'range-cal-head';
+  const step = (dir) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'range-nav';
+    btn.innerHTML = `<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">${RANGE_ARROWS[dir]}</svg>`;
+    btn.disabled = dir === 'next' && (isYear ? d.yearEnd : d.year) >= now.getFullYear();
+    btn.addEventListener('click', () => rangeGridStep(dir === 'next' ? 1 : -1));
+    return btn;
+  };
+  const title = document.createElement('span');
+  title.className = 'range-cal-title';
+  title.textContent = isYear ? `${first} - ${d.yearEnd}` : String(d.year);
+  head.append(step('prev'), title, step('next'));
+  wrap.appendChild(head);
+
+  const sel = d.sel.unit === d.mode ? d.sel : { a: null, b: null };
+  const lo = sel.a;
+  const hi = sel.b || sel.a;
+  const grid = document.createElement('div');
+  grid.className = 'range-month-grid';
+  for (let i = 0; i < 12; i++) {
+    const y = isYear ? first + i : d.year;
+    const value = isYear ? String(y) : `${y}-${pad2(i + 1)}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'range-month';
+    btn.textContent = isYear
+      ? String(y)
+      : new Date(y, i, 1).toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
+    const future = isYear ? y > now.getFullYear() : new Date(y, i, 1) > now;
+    if (future) {
+      btn.disabled = true;
+      btn.classList.add('off');
+    } else {
+      btn.dataset[isYear ? 'year' : 'month'] = value;
+    }
+    if (lo && (value === lo || value === hi)) btn.classList.add('on');
+    else if (lo && value > lo && value < hi) btn.classList.add('in');
+    const current = isYear ? y === now.getFullYear() : y === now.getFullYear() && i === now.getMonth();
+    if (current) btn.classList.add('today');
+    grid.appendChild(btn);
+  }
+  wrap.appendChild(grid);
+  host.appendChild(wrap);
 }
 
 function onRangeDayHover(e) {
@@ -2516,8 +2709,8 @@ function aimRangePicker(which) {
 // biome-ignore lint/correctness/noUnusedVariables: called from popover markup
 function applyRangeDraft() {
   const d = rangeDraft;
-  if (!d?.from || !d.to) return;
-  const next = { kind: 'custom', from: d.from, to: d.to };
+  if (!d || (d.mode === 'period' ? !d.from || !d.to : !d.sel.a)) return;
+  const next = d.mode === 'period' ? { kind: 'custom', from: d.from, to: d.to } : selectionRange(d.sel);
   closeRangePicker();
   applyRange(next);
 }
@@ -2586,6 +2779,22 @@ function renderRangePicker() {
 
   for (const b of document.querySelectorAll('#rangePresets .range-preset')) {
     b.classList.toggle('on', b.dataset.value === d.preset);
+  }
+
+  document.getElementById('rangePop').classList.toggle('unit-mode', d.mode !== 'period');
+  for (const btn of document.querySelectorAll('#rangeMode .range-mode-btn')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.mode === d.mode));
+  }
+  if (d.mode !== 'period') {
+    const unitHost = document.getElementById('rangeMonths');
+    unitHost.innerHTML = '';
+    renderRangeUnits(unitHost);
+    const { a, b } = d.sel.unit === d.mode ? d.sel : {};
+    const n = a ? Math.abs(unitIndex(b || a, d.mode) - unitIndex(a, d.mode)) + 1 : 0;
+    const noun = d.mode === 'year' ? 'year' : 'month';
+    document.getElementById('rangeSummary').textContent = n ? `${n} ${noun}${n === 1 ? '' : 's'}` : `pick a ${noun}`;
+    document.getElementById('rangeApply').disabled = !a;
+    return;
   }
 
   const fromBox = document.getElementById('rangeFromBox');

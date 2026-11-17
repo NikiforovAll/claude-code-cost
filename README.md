@@ -33,7 +33,7 @@ The dashboard is a PWA. With the server running, open it in Chrome or Edge and c
 
 - **Drill down from the total to one message.** Open a project to see its sessions, then a session to see each message. <kbd>Backspace</kbd> goes back one level.
 - **Session detail.** A cumulative cost curve, the tokens of each message, and a table with the model, the tools it called, and the running total. Subagents and Workflow runs are in the totals, with a row per agent. Compactions show with an estimated summarizer cost. A range brush picks which messages to show in long sessions.
-- **Date ranges.** Presets from Today and Last 24h up to 1 Year, or two dates on a calendar. The range and the project scope apply to every view.
+- **Date ranges.** Presets from Today and Last 24h up to 1 Year, This Month and This Year, whole months or years (one or several), or two dates on a calendar. The range and the project scope apply to every view.
 - **Insights.** The active 5-hour block with its time left, burn rate, monthly run-rate, cache savings, and subagent share. Charts for token composition, top tools, an hourly heatmap, and weekly cost, plus a table of past 5-hour blocks.
 - **Plan usage.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> to see your plan windows, the percent used, and what drives the cost.
 - **Pricing.** Live prices from the [LiteLLM](https://github.com/BerriAI/litellm) price list, with the 200K-token tier, cache reads and writes, and fast mode. A built-in table fills in when the list cannot load. Streamed lines are counted once per `message.id` plus `requestId`.

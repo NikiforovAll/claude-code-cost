@@ -21,10 +21,24 @@ Click the date range button in the top bar. Its label shows the current range, f
 | 3 Days | The last 3 calendar days, today included. This is the default. |
 | 7 Days | The last 7 calendar days |
 | 30 Days | The last 30 calendar days |
+| This Month | The 1st of the current month up to today. It starts over on the 1st. |
 | 90 Days | The last 90 calendar days |
 | 1 Year | The last 365 calendar days |
+| This Year | January 1 up to today. It starts over on January 1. |
 
 "N days" means N whole calendar days that end today. The app stores the preset itself, and the server computes the window again on each request. A 7 Days range you set last week still means the last 7 days today.
+
+## Pick months or years
+
+The toggle above the calendar has three modes: **Days** (two dates, see below), **Months** and **Years**.
+
+1. Open the date range picker and choose **Months** or **Years**.
+2. Click the first month or year. Click a second one to select everything between them, or skip this for a single one. A click before the first swaps the two.
+3. Use the arrows to move between years, or between pages of twelve years. Click **Apply**.
+
+The top bar then names the window, for example `SEPTEMBER 2026`, `SEP 2026 - NOV 2026` or `2025`. Months and years after today are disabled. Picking only the current month or year selects **This Month** or **This Year**, so it keeps following the calendar. Anything else is stored as a fixed custom range.
+
+From the command line, `--range` takes `month`, `year`, `YYYY-MM` or `YYYY`, and `--from` and `--to` take the same forms, for example `--from 2025 --to 2026` or `--from 2026-09 --to 2026-11`. A bound reaches to the edge of its unit: a `--from` year or month starts on its first day, a `--to` one ends on its last. The running month or year ends today.
 
 ## Pick a custom range
 
