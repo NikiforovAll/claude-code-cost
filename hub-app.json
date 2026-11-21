@@ -7,7 +7,7 @@
   "plugin": { "marketplace": "plugin", "name": "cost-dashboard" },
   "listing": {
     "tagline": "Ask Claude what your Claude Code sessions cost",
-    "description": "A skill that lets Claude read your Claude Code costs in a session. Ask \"what did this week cost?\" or \"which session cost the most?\", or run /cost-dashboard:cost. Claude answers with totals by day, model and project, the costliest sessions and subagents, and your plan usage limits. The skill only reads, and the numbers are estimates at list prices. Kanbot on the Kanban board has the skill with no install.",
+    "description": "A skill that lets Claude read your Claude Code costs in a session. Run /cost-dashboard:cost with a question, such as \"what did this week cost?\" or \"which session cost the most?\". Claude answers with totals by day, model and project, the costliest sessions and subagents, and your plan usage limits.",
     "tags": ["skill", "cost", "cli"],
     "homepage": "https://nikiforovall.blog/claude-code-cost/",
     "screenshots": [

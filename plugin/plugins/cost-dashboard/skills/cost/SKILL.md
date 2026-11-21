@@ -1,7 +1,8 @@
 ---
 name: cost
-description: Read Claude Code costs — totals by day, model and project, the costliest sessions and subagents, one session's turns, and plan usage limits. Use when the user asks what Claude Code cost, where the money went, or how close they are to a limit.
+description: Read Claude Code costs — totals by day, model and project, the costliest sessions and subagents, one session's turns, and plan usage limits.
 argument-hint: '[overview|insights|projects|sessions|agents|session|agent|limits] [flags]'
+disable-model-invocation: true
 ---
 
 # Cost
