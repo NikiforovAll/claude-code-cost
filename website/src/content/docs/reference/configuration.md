@@ -83,7 +83,7 @@ The window comes from the first of these that is set:
 
 A bad flag is an error. A bad environment or config value prints a warning and is skipped.
 
-For `overview --compare`, the window before has the same number of days and ends the day before the window starts. Today counts only up to now, so `today` compares part of a day with all of yesterday. `24h` has no window before it. The command also parses the window before, so it takes longer than the window alone, and `--json` prints `{current, previous, previousWindow}`.
+For `overview --compare`, the window before has the same number of days and ends the day before the window starts. A window of calendar months is the exception: whole months compare with the same number of months before (September with August), and months that run up to today compare with the same days (November 1 to 17 with October 1 to 17). A window from January that covers whole years, or runs up to today, compares with the years before, so the year so far compares with the same days of last year. The two windows can differ in length; both print their dates. Today counts only up to now, so `today` compares part of a day with all of yesterday. `24h` has no window before it. The command also parses the window before, so it takes longer than the window alone, and `--json` prints `{current, previous, previousWindow}`.
 
 ### Server or files
 
