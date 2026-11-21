@@ -1,0 +1,14 @@
+{
+  "name": "cost-dashboard",
+  "owner": {
+    "name": "NikiforovAll"
+  },
+  "description": "The plugin that ships with Claude Code Cost",
+  "plugins": [
+    {
+      "name": "cost-dashboard",
+      "source": "./plugins/cost-dashboard",
+      "description": "A skill to read Claude Code costs from a session"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ node server.js --port 3000 --open  # Custom port
 - **lib/costs.js** — pricing, JSONL parsing, aggregation and query parsing; shared by the server and the CLI
 - **lib/app.js** — Express routes and startup; writes `<config dir>/.cost/server.json` (`{pid, port, script}`; cck reads `script` to name the CLI to Kanbot) once it listens and removes it on exit
 - **lib/cli.js** — `claude-code-cost <command>`: asks the server of the config dir (`COST_URL`, else `server.json` with a live pid), else parses in-process. Commands, flags and help live in its `COMMANDS` table. The help is read by agents (Kanbot), so keep each line short
+- **plugin/** — a Claude Code marketplace with one plugin, `cost-dashboard`, whose `cost` skill wraps the CLI. It is not installed by default. cck loads it into Kanbot with `--plugin-dir` from `plugin/plugins/cost-dashboard`, so that path and the plugin name must stay. The skill points at the help and lists no flags; a new command gets a row in its table
 - **public/app.js** — Vanilla JS SPA with Chart.js, no build step
 - **public/style.css** — CSS variables, dark/light theme (matches cck + marketplace)
 

@@ -1,0 +1,6 @@
+{
+  "name": "cost-dashboard",
+  "version": "1.0.0",
+  "author": { "name": "NikiforovAll" },
+  "description": "A skill to read Claude Code costs from a session"
+}

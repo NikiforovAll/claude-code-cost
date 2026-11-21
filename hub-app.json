@@ -4,6 +4,35 @@
   "name": "Cost",
   "icon": "dollar-sign",
   "run": { "entry": "server.js", "defaultPort": 3543 },
+  "plugin": { "marketplace": "plugin", "name": "cost-dashboard" },
+  "listing": {
+    "tagline": "Ask Claude what your Claude Code sessions cost",
+    "description": "A skill that lets Claude read your Claude Code costs in a session. Ask \"what did this week cost?\" or \"which session cost the most?\", or run /cost-dashboard:cost. Claude answers with totals by day, model and project, the costliest sessions and subagents, and your plan usage limits. The skill only reads, and the numbers are estimates at list prices. Kanbot on the Kanban board has the skill with no install.",
+    "tags": ["skill", "cost", "cli"],
+    "homepage": "https://nikiforovall.blog/claude-code-cost/",
+    "screenshots": [
+      {
+        "url": "https://nikiforovall.blog/claude-code-cost/shots/themes/ember-h2-hub-cost-light.webp",
+        "alt": "The Cost dashboard in the hub: the total cost, the cost by day and by model, and the top projects",
+        "title": "Overview",
+        "caption": "The numbers the skill reads: the total, by day, by model and by project."
+      },
+      {
+        "url": "https://nikiforovall.blog/claude-code-cost/shots/themes/ember-h2d-hub-cost-sessions-light.webp",
+        "alt": "The Cost dashboard's session list, sorted by cost",
+        "title": "Sessions",
+        "caption": "Sessions by cost. Ask Claude which one cost the most."
+      },
+      {
+        "url": "https://nikiforovall.blog/claude-code-cost/shots/themes/ember-cost-insights-light.webp",
+        "alt": "The Cost insights view: run rate, 5-hour blocks, subagent share and top tools",
+        "title": "Insights",
+        "caption": "Run rate, 5-hour blocks, the subagent share and the top tools."
+      }
+    ],
+    "author": "NikiforovAll",
+    "license": "MIT"
+  },
   "loading": {
     "verbs": [
       "Counting tokens…",
