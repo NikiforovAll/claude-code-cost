@@ -106,6 +106,44 @@ describe('previousWindow', () => {
   it('has no window before 24h', () => {
     assert.throws(() => previousWindow(parseWindowValue('24h'), now), /not 24h/);
   });
+
+  describe('calendar months and years', () => {
+    const at = new Date(2026, 10, 17, 15);
+    const before = (from, to, when = at) => {
+      const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+      const prev = previousWindow({ range: { from, to }, days }, when);
+      return [prev.range.from, prev.range.to, prev.days];
+    };
+
+    it('compares whole months with the months before', () => {
+      assert.deepEqual(before('2026-09-01', '2026-09-30'), ['2026-08-01', '2026-08-31', 31]);
+      assert.deepEqual(before('2026-03-01', '2026-03-31'), ['2026-02-01', '2026-02-28', 28]);
+      assert.deepEqual(before('2026-08-01', '2026-10-31'), ['2026-05-01', '2026-07-31', 92]);
+      assert.deepEqual(before('2026-01-01', '2026-02-28'), ['2025-11-01', '2025-12-31', 61]);
+    });
+
+    it('compares a month so far with the same days of the month before', () => {
+      assert.deepEqual(before('2026-11-01', '2026-11-17'), ['2026-10-01', '2026-10-17', 17]);
+      assert.deepEqual(before('2026-09-01', '2026-11-17'), ['2026-06-01', '2026-08-17', 78]);
+      assert.deepEqual(before('2026-03-01', '2026-03-30', new Date(2026, 2, 30, 9)), ['2026-02-01', '2026-02-28', 28]);
+      assert.deepEqual(before('2026-01-01', '2026-01-15', new Date(2026, 0, 15, 9)), ['2025-12-01', '2025-12-15', 15]);
+    });
+
+    it('compares years with the years before', () => {
+      assert.deepEqual(before('2025-01-01', '2025-12-31'), ['2024-01-01', '2024-12-31', 366]);
+      assert.deepEqual(before('2024-01-01', '2025-12-31'), ['2022-01-01', '2023-12-31', 730]);
+      assert.deepEqual(before('2026-01-01', '2026-11-17'), ['2025-01-01', '2025-11-17', 321]);
+      assert.deepEqual(before('2026-01-01', '2026-03-31', new Date(2026, 2, 31, 9)), ['2025-01-01', '2025-03-31', 90]);
+      assert.deepEqual(before('2028-01-01', '2028-02-29', new Date(2028, 1, 29, 9)), ['2027-01-01', '2027-02-28', 59]);
+    });
+
+    it('keeps the day rule for any other window', () => {
+      assert.deepEqual(before('2026-11-02', '2026-11-17'), ['2026-10-17', '2026-11-01', 16]);
+      assert.deepEqual(before('2026-10-01', '2026-10-17'), ['2026-09-14', '2026-09-30', 17]);
+      assert.deepEqual(before('2026-11-01', '2026-11-01', new Date(2026, 10, 1, 9)), ['2026-10-31', '2026-10-31', 1]);
+      assert.deepEqual(previousWindow(parseWindowValue('30d'), new Date(2026, 10, 30, 9)).range, { from: '2026-10-02', to: '2026-10-31' });
+    });
+  });
 });
 
 describe('matchSessions', () => {
