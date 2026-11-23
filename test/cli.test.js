@@ -80,7 +80,7 @@ describe('resolveWindow', () => {
 
   it('fails on half a pair or a bad date; a window can pass a year', () => {
     assert.throws(() => windowOf({ from: '2026-01-01' }), /pair/);
-    assert.throws(() => windowOf({ from: '2026-02-30', to: '2026-03-01' }), /pair/);
+    assert.throws(() => windowOf({ from: '2026-02-30', to: '2026-03-01' }), /take/);
     assert.equal(windowOf({ from: '2024-01-01', to: '2025-06-01' }).w.days, 518);
   });
 });
@@ -191,8 +191,14 @@ describe('months and years in --range, --from and --to', () => {
   it('rejects bad, future and lone values', () => {
     assert.throws(() => win({ range: '2026-13' }), /use today/);
     assert.throws(() => win({ range: '2027' }), /has not started/);
-    assert.throws(() => win({ from: '2026-13', to: '2026-12' }), /come as a pair/);
+    assert.throws(() => win({ from: '2026-13', to: '2026-12' }), /take/);
     assert.throws(() => win({ from: '2025' }), /come as a pair/);
+  });
+  it('takes the same year range in YYYY and YYYY-MM', () => {
+    assert.throws(() => win({ range: '1999' }), /use today/);
+    assert.throws(() => win({ range: '1999-05' }), /use today/);
+    assert.throws(() => win({ from: '1999', to: '2026' }), /take/);
+    assert.deepEqual(win({ range: '2000-02' }).range, { from: '2000-02-01', to: '2000-02-29' });
   });
   it('env and config accept them too', () => {
     assert.deepEqual(win({}, { CLAUDE_COST_RANGE: '2026-09' }).range, { from: '2026-09-01', to: '2026-09-30' });
