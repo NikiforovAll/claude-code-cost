@@ -1016,7 +1016,12 @@ function renderInsights() {
 
       <div class="charts-row">
         <div class="chart-box">
-          <div class="chart-title">Token Composition <span class="chart-title-note">log scale</span></div>
+          <div class="chart-title share-head">Token Composition
+            <div class="seg" role="group" aria-label="Measure">
+              <button type="button" class="seg-btn${tokenSplitMode === 'tokens' ? ' on' : ''}" data-token-split="tokens" onclick="setTokenSplitMode('tokens')">tokens</button>
+              <button type="button" class="seg-btn${tokenSplitMode === 'cost' ? ' on' : ''}" data-token-split="cost" onclick="setTokenSplitMode('cost')">cost</button>
+            </div>
+          </div>
           <canvas id="tokenSplitChart"></canvas>
         </div>
         <div class="chart-box">
@@ -1072,7 +1077,7 @@ function renderInsights() {
 
   initHeatmapTooltip();
   requestAnimationFrame(() => {
-    renderTokenSplitChart(d.tokens);
+    renderTokenSplitChart(d);
     if (d.tools.length) renderToolsChart(d.tools);
     if (showWeekly) renderWeeklyChart(d.weekly);
   });
@@ -2227,11 +2232,25 @@ function drawRangeOverview(svg, messages) {
 }
 // #endregion
 
-function renderTokenSplitChart(t) {
+let tokenSplitMode = localStorage.getItem('cc-cost:token-split') === 'cost' ? 'cost' : 'tokens';
+window.setTokenSplitMode = setTokenSplitMode;
+
+function setTokenSplitMode(mode) {
+  tokenSplitMode = mode;
+  localStorage.setItem('cc-cost:token-split', mode);
+  for (const b of document.querySelectorAll('[data-token-split]'))
+    b.classList.toggle('on', b.dataset.tokenSplit === mode);
+  if (insightsData) renderTokenSplitChart(insightsData);
+}
+
+function renderTokenSplitChart(d) {
   const canvas = document.getElementById('tokenSplitChart');
   if (!canvas) return;
   destroyChart('tokenSplit');
 
+  const byCost = tokenSplitMode === 'cost';
+  const t = byCost ? d.tokenCosts : d.tokens;
+  const fmt = byCost ? formatCost : formatTokens;
   const c = getChartColors();
   const defaults = chartDefaults();
   const rows = [
@@ -2258,13 +2277,16 @@ function renderTokenSplitChart(t) {
       indexAxis: 'y',
       interaction: { mode: 'index', axis: 'y', intersect: false },
       plugins: withTooltip(defaults, {
-        label: (ctx) => `${formatTokens(ctx.parsed.x)} (${formatPct(ctx.parsed.x, total)}%)`,
+        label: (ctx) => `${fmt(ctx.parsed.x)} (${formatPct(ctx.parsed.x, total)}%)`,
       }),
       scales: {
         ...defaults.scales,
         // Log scale: cache reads structurally dwarf fresh input by 3-5 orders of magnitude,
         // so a linear axis renders every other bar invisible. Tooltip carries exact values + %.
-        x: logAxis(defaults.scales.x, Math.max(...rows.map((r) => r[1]))),
+        // Cost parts sit within about one order of magnitude, so cost mode stays linear.
+        x: byCost
+          ? { ...defaults.scales.x, beginAtZero: true, ticks: { ...defaults.scales.x.ticks, callback: formatCost } }
+          : logAxis(defaults.scales.x, Math.max(...rows.map((r) => r[1]))),
       },
     },
   });
