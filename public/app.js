@@ -378,8 +378,9 @@ function yearSpan(y) {
 
 // What whole calendar units [from, to] covers, or null for any other window: whole months
 // ({unit:'month', a:'2026-09', b:'2026-11'}) or whole years ({unit:'year', a:2025, b:2026}). The
-// running month or year counts as whole when it ends today. Names a window "NOVEMBER 2026" or
-// "2025" instead of by its two dates, and picks the picker's mode on open.
+// running month or year counts as whole when it ends today, except a running January, which is a
+// month rather than the year it has barely started. Names a window "NOVEMBER 2026" or "2025"
+// instead of by its two dates, and picks the picker's mode on open.
 function periodOf(from, to) {
   if (from === to) return null;
   const [fy, fm, fd] = isoParts(from);
@@ -387,7 +388,7 @@ function periodOf(from, to) {
   if (fd !== 1 || monthSpan(ty, tm - 1).to !== to) return null;
   const now = new Date();
   const running = ty === now.getFullYear() && tm - 1 === now.getMonth();
-  if (fm === 1 && (tm === 12 || running)) return { unit: 'year', a: fy, b: ty };
+  if (fm === 1 && (tm === 12 || (running && tm !== 1))) return { unit: 'year', a: fy, b: ty };
   return { unit: 'month', a: `${fy}-${pad2(fm)}`, b: `${ty}-${pad2(tm)}` };
 }
 
@@ -419,7 +420,7 @@ function rangeText(r, prefix = {}) {
       : n.value === 'today'
         ? 'today'
         : n.value === 'month' || n.value === 'year'
-          ? 'month'
+          ? 'calendar'
           : 'rolling';
   const base =
     kind === 'all'
@@ -428,7 +429,7 @@ function rangeText(r, prefix = {}) {
         ? rangeSpanLabel(n)
         : kind === 'today'
           ? 'today'
-          : kind === 'month'
+          : kind === 'calendar'
             ? `this ${n.value}`
             : n.value === '24h'
               ? '24 hours'
@@ -438,7 +439,7 @@ function rangeText(r, prefix = {}) {
 
 const rangeLabel = (r) => rangeText(r);
 const rangeScopeLabel = (r) => rangeText(r, { rolling: 'last ' });
-const rangeInLabel = (r) => rangeText(r, { all: 'in ', custom: 'in ', month: 'in ', rolling: 'in the last ' });
+const rangeInLabel = (r) => rangeText(r, { all: 'in ', custom: 'in ', calendar: 'in ', rolling: 'in the last ' });
 
 // Uppercase, for the picker trigger: the preset's own name, or the window's dates.
 const rangeTriggerLabel = (r) => {
@@ -2437,19 +2438,19 @@ function setColorTheme(id) {
 // #region DATE_PICKER
 
 // Presets are sticky: what is stored is the preset, and the server recomputes its rolling window on
-// every request. `days` only previews the span inside the calendar.
+// every request.
 const RANGE_PRESETS = [
-  { value: 'today', label: 'Today', days: 0 },
-  { value: '24h', label: 'Last 24h', days: 1 },
-  { value: '3', label: '3 Days', days: 3 },
-  { value: '7', label: '7 Days', days: 7 },
-  { value: '30', label: '30 Days', days: 30 },
+  { value: 'today', label: 'Today' },
+  { value: '24h', label: 'Last 24h' },
+  { value: '3', label: '3 Days' },
+  { value: '7', label: '7 Days' },
+  { value: '30', label: '30 Days' },
   // Calendar month to date. Sticky like the rolling presets, but resolved here (see monthToDate): the
   // server has no such preset and only ever sees its two dates.
-  { value: 'month', label: 'This Month', cardLabel: 'This Month', days: 0 },
-  { value: '90', label: '90 Days', days: 90 },
-  { value: '365', label: '1 Year', days: 365, cardLabel: '365 Days' },
-  { value: 'year', label: 'This Year', cardLabel: 'This Year', days: 0 },
+  { value: 'month', label: 'This Month', cardLabel: 'This Month' },
+  { value: '90', label: '90 Days' },
+  { value: '365', label: '1 Year', cardLabel: '365 Days' },
+  { value: 'year', label: 'This Year', cardLabel: 'This Year' },
 ];
 const RANGE_DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 // Two months do not fit a narrow window, so below this the calendar collapses to one. Kept in step
